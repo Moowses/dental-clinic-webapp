@@ -1,10 +1,25 @@
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  sendPasswordResetEmail,
+  updateProfile as firebaseUpdateProfile,
+  sendEmailVerification,
+  GoogleAuthProvider,
+  signInWithPopup,
+  User,
 } from "firebase/auth";
 import { auth } from "../firebase/firebase";
-import { signInSchema, signUpSchema } from "../validations/auth";
+import {
+  signInSchema,
+  signUpSchema,
+  resetPasswordSchema,
+  updateProfileSchema,
+} from "../validations/auth";
 import { z } from "zod";
+import { createUserDocument } from "./user-service";
+
+// ... existing code ...
 
 export async function signIn(credentials: z.infer<typeof signInSchema>) {
   try {
@@ -22,7 +37,82 @@ export async function signIn(credentials: z.infer<typeof signInSchema>) {
 export async function signUp(credentials: z.infer<typeof signUpSchema>) {
   try {
     const { email, password } = signUpSchema.parse(credentials);
-    await createUserWithEmailAndPassword(auth, email, password);
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    
+    // Create Firestore Document
+    await createUserDocument(userCredential.user.uid, email, "client");
+
+    // Send verification email immediately after signup
+    if (userCredential.user) {
+      await sendEmailVerification(userCredential.user);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "An unknown error occurred" };
+  }
+}
+
+export async function logout() {
+  try {
+    await firebaseSignOut(auth);
+    return { success: true };
+  } catch (error) {
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "An unknown error occurred" };
+  }
+}
+
+export async function performPasswordReset(data: z.infer<typeof resetPasswordSchema>) {
+  try {
+    const { email } = resetPasswordSchema.parse(data);
+    await sendPasswordResetEmail(auth, email);
+    return { success: true };
+  } catch (error) {
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "An unknown error occurred" };
+  }
+}
+
+export async function updateUserProfile(user: User, data: z.infer<typeof updateProfileSchema>) {
+  try {
+    const parsed = updateProfileSchema.parse(data);
+    await firebaseUpdateProfile(user, {
+      displayName: parsed.displayName,
+      photoURL: parsed.photoURL,
+    });
+    return { success: true };
+  } catch (error) {
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "An unknown error occurred" };
+  }
+}
+
+export async function sendVerificationEmail(user: User) {
+  try {
+    await sendEmailVerification(user);
+    return { success: true };
+  } catch (error) {
+    if (error instanceof Error) {
+      return { success: false, error: error.message };
+    }
+    return { success: false, error: "An unknown error occurred" };
+  }
+}
+
+export async function loginWithGoogle() {
+  try {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
     return { success: true };
   } catch (error) {
     if (error instanceof Error) {

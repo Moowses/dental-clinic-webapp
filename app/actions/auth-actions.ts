@@ -1,37 +1,20 @@
 "use server";
 
-import { signIn, signUp } from "@/lib/services/auth-service";
-import { signInSchema, signUpSchema } from "@/lib/validations/auth";
+import { signIn, signUp, performPasswordReset } from "@/lib/services/auth-service";
+import { signInSchema, signUpSchema, resetPasswordSchema } from "@/lib/validations/auth";
+import { actionWrapper, ActionState } from "@/lib/utils";
 
-export type AuthState = {
-  success: boolean;
-  error?: string;
-};
+export type AuthState = ActionState;
 
 export async function signInAction(prevState: AuthState, data: FormData): Promise<AuthState> {
-  const formData = Object.fromEntries(data);
-  const parsed = signInSchema.safeParse(formData);
-
-  if (!parsed.success) {
-    return {
-      success: false,
-      error: parsed.error.issues[0].message,
-    };
-  }
-
-  return await signIn(parsed.data);
+  return actionWrapper(signInSchema, signIn, data);
 }
 
 export async function signUpAction(prevState: AuthState, data: FormData): Promise<AuthState> {
-  const formData = Object.fromEntries(data);
-  const parsed = signUpSchema.safeParse(formData);
-
-  if (!parsed.success) {
-    return {
-      success: false,
-      error: parsed.error.issues[0].message,
-    };
-  }
-
-  return await signUp(parsed.data);
+  return actionWrapper(signUpSchema, signUp, data);
 }
+
+export async function resetPasswordAction(prevState: AuthState, data: FormData): Promise<AuthState> {
+  return actionWrapper(resetPasswordSchema, performPasswordReset, data);
+}
+
