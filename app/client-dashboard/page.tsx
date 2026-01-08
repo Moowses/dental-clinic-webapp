@@ -1,153 +1,400 @@
-
+// app/client-dashboard/page.tsx
 "use client";
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-
-type Appointment = {
-  id: string;
-  doctor: string;
-  date: string;
-  type: "Online" | "Clinic Visit";
-  status: "Upcoming" | "Completed" | "Cancelled";
-};
-
-type Message = {
-  id: string;
-  from: string;
-  subject: string;
-  time: string;
-  unread?: boolean;
-};
+import { useEffect, useMemo, useState, useActionState } from "react";
+import { useAuth } from "@/lib/hooks/useAuth";
+import { getUserAppointments } from "@/lib/services/appointment-service";
+import { getPatientRecord } from "@/lib/services/patient-service";
+import { updatePatientRecordAction } from "@/app/actions/auth-actions";
+import type { Appointment } from "@/lib/types/appointment";
+import type { PatientRecord } from "@/lib/types/patient";
+import BookAppointmentModal from "@/components/BookAppointmentModal";
 
 const BRAND = "#0E4B5A";
 
-function StatCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-extrabold text-slate-900">{value}</p>
-      {hint ? (
-        <p className="mt-2 text-xs text-slate-500">{hint}</p>
-      ) : (
-        <div className="mt-4 h-2 w-24 rounded-full bg-slate-100" />
-      )}
-    </div>
-  );
-}
-
-function Badge({
-  tone,
-  children,
-}: {
-  tone: "green" | "gray" | "red" | "blue";
-  children: React.ReactNode;
-}) {
+function StatusBadge({ status }: { status: string }) {
+  const s = (status || "").toLowerCase();
   const cls =
-    tone === "green"
-      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-      : tone === "red"
+    s === "pending"
+      ? "bg-amber-50 text-amber-700 border-amber-200"
+      : s === "cancelled"
       ? "bg-red-50 text-red-700 border-red-200"
-      : tone === "blue"
-      ? "bg-sky-50 text-sky-700 border-sky-200"
-      : "bg-slate-50 text-slate-700 border-slate-200";
+      : "bg-emerald-50 text-emerald-700 border-emerald-200";
 
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${cls}`}>
-      {children}
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${cls}`}
+    >
+      {status}
     </span>
   );
 }
 
-function statusTone(s: Appointment["status"]): "green" | "gray" | "red" | "blue" {
-  if (s === "Upcoming") return "blue";
-  if (s === "Completed") return "green";
-  if (s === "Cancelled") return "red";
-  return "gray";
+function AppointmentsTable({
+  appointments,
+  loading,
+  onAddAppointment,
+}: {
+  appointments: Appointment[];
+  loading: boolean;
+  onAddAppointment: () => void;
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-sm font-semibold text-slate-800">
+          Loading appointment history...
+        </p>
+        <div className="mt-4 space-y-3">
+          <div className="h-12 rounded-xl bg-slate-100" />
+          <div className="h-12 rounded-xl bg-slate-100" />
+          <div className="h-12 rounded-xl bg-slate-100" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!appointments.length) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h3 className="text-lg font-extrabold text-slate-900">
+          My Appointment History
+        </h3>
+        <p className="mt-2 text-sm text-slate-600">
+          No appointments booked yet.
+        </p>
+
+        <button
+          type="button"
+          onClick={onAddAppointment}
+          className="mt-5 inline-flex rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+          style={{ backgroundColor: BRAND }}
+        >
+          Book your first appointment
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+        <div>
+          <h3 className="text-lg font-extrabold text-slate-900">
+            My Appointment History
+          </h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Review your bookings and appointment status.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onAddAppointment}
+          className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+          style={{ backgroundColor: BRAND }}
+        >
+          <span className="text-lg leading-none">+</span>
+          Add Appointment
+        </button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-50 text-xs font-bold text-slate-600">
+            <tr>
+              <th className="px-6 py-3">Service</th>
+              <th className="px-6 py-3">Date</th>
+              <th className="px-6 py-3">Time</th>
+              <th className="px-6 py-3">Status</th>
+              <th className="px-6 py-3">Action</th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100">
+            {appointments.map((app) => (
+              <tr key={app.id} className="hover:bg-slate-50/60">
+                <td className="px-6 py-4">
+                  <p className="font-bold text-slate-900">{app.serviceType}</p>
+                  <p className="text-xs text-slate-500">Ref: {app.id}</p>
+                </td>
+
+                <td className="px-6 py-4 text-slate-700">{app.date}</td>
+                <td className="px-6 py-4 text-slate-700">{app.time}</td>
+
+                <td className="px-6 py-4">
+                  <StatusBadge status={app.status} />
+                </td>
+
+                <td className="px-6 py-4">
+                  <div className="flex gap-2">
+                    <button
+                      className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200"
+                      onClick={() => alert(`View appointment ${app.id}`)}
+                    >
+                      View
+                    </button>
+
+                    {String(app.status).toLowerCase() === "pending" && (
+                      <button
+                        className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"
+                        onClick={() => alert(`Cancel appointment ${app.id}`)}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AccountSettingsForm({
+  userDisplayName,
+  email,
+  record,
+}: {
+  userDisplayName: string;
+  email: string;
+  record: PatientRecord | null;
+}) {
+  const [state, formAction, isPending] = useActionState(
+    updatePatientRecordAction,
+    { success: false }
+  );
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-extrabold text-slate-900">
+            Account Settings
+          </h3>
+          <p className="mt-2 text-sm text-slate-600">
+            Keep your contact details updated so the clinic can reach you.
+          </p>
+        </div>
+
+        {state.success && (
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-extrabold text-emerald-700 border border-emerald-200">
+            Saved
+          </span>
+        )}
+      </div>
+
+      <form action={formAction} className="mt-5 space-y-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-bold text-slate-600">
+              Full Name
+            </label>
+            <input
+              name="displayName"
+              defaultValue={userDisplayName}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
+              placeholder="Full name"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-600">Email</label>
+            <input
+              defaultValue={email}
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500 outline-none"
+              disabled
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-bold text-slate-600">
+              Phone Number
+            </label>
+            <input
+              name="phoneNumber"
+              defaultValue={record?.phoneNumber || ""}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
+              placeholder="e.g. 09xx xxx xxxx"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-600">
+              Date of Birth
+            </label>
+            <input
+              name="dateOfBirth"
+              type="date"
+              defaultValue={record?.dateOfBirth || ""}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-600">Gender</label>
+            <select
+              name="gender"
+              defaultValue={record?.gender || "male"}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
+            >
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-600">
+              Emergency Contact
+            </label>
+            <input
+              name="emergencyContact"
+              defaultValue={record?.emergencyContact || ""}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
+              placeholder="Name / Number"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold text-slate-600">Address</label>
+          <input
+            name="address"
+            defaultValue={record?.address || ""}
+            className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
+            placeholder="Full address"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={isPending}
+          className="inline-flex w-full justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+          style={{ backgroundColor: BRAND }}
+        >
+          {isPending ? "Saving..." : "Save Changes"}
+        </button>
+
+        {state.error && (
+          <p className="text-sm font-bold text-red-600">{state.error}</p>
+        )}
+      </form>
+    </div>
+  );
 }
 
 export default function ClientDashboardPage() {
+  const { user, role, loading, logout } = useAuth();
+
   const [active, setActive] = useState<"dashboard" | "settings">("dashboard");
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
-  const patient = useMemo(
-    () => ({
-      name: "Karl Moses",
-      memberId: "PT-10294",
-      avatar: "/clinic6.jpg", //sample rani bitch
-    }),
-    []
+  const [record, setRecord] = useState<PatientRecord | null>(null);
+  const [recordLoading, setRecordLoading] = useState(true);
+
+  const [openBooking, setOpenBooking] = useState(false);
+
+  const normalizedRole = (role ?? "").toString().trim().toLowerCase();
+
+  const patientName = useMemo(
+    () => user?.displayName || user?.email?.split("@")[0] || "Patient",
+    [user]
   );
 
-  const appointments: Appointment[] = useMemo(
-    () => [
-      {
-        id: "A-1001",
-        doctor: "Dr. Andrea Santos",
-        date: "2026-01-05 • 10:30 AM",
-        type: "Clinic Visit",
-        status: "Upcoming",
-      },
-      {
-        id: "A-0991",
-        doctor: "Dr. Miguel Reyes",
-        date: "2025-12-18 • 2:00 PM",
-        type: "Online",
-        status: "Completed",
-      },
-      {
-        id: "A-0974",
-        doctor: "Dr. Aria Rahman",
-        date: "2025-11-28 • 9:15 AM",
-        type: "Clinic Visit",
-        status: "Cancelled",
-      },
-    ],
-    []
-  );
+  const refreshAppointments = () => {
+    if (!user) return;
+    setHistoryLoading(true);
+    getUserAppointments(user.uid).then((res) => {
+      if (res?.success) setAppointments(res.data || []);
+      setHistoryLoading(false);
+    });
+  };
 
-  const inbox: Message[] = useMemo(
-    () => [
-      {
-        id: "M-1",
-        from: "J4 Dental Clinic",
-        subject: "Reminder: Bring your valid ID for your appointment.",
-        time: "1:35 PM",
-        unread: true,
-      },
-      {
-        id: "M-2",
-        from: "Reception",
-        subject: "Your appointment has been confirmed.",
-        time: "11:10 AM",
-        unread: false,
-      },
-      {
-        id: "M-3",
-        from: "Billing",
-        subject: "Receipt is ready for download.",
-        time: "Yesterday",
-        unread: false,
-      },
-    ],
-    []
-  );
+  useEffect(() => {
+    if (!user) return;
+    refreshAppointments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    setRecordLoading(true);
+    getPatientRecord(user.uid).then((res) => {
+      if (res?.success) setRecord(res.data || null);
+      setRecordLoading(false);
+    });
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center px-4">
+        <div className="text-sm text-slate-600">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="max-w-md w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center">
+          <h2 className="text-xl font-extrabold text-slate-900">
+            Please sign in
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            You need an account to access your dashboard.
+          </p>
+          <Link
+            href="/"
+            className="mt-5 inline-flex w-full justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+            style={{ backgroundColor: BRAND }}
+          >
+            Go to Home
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (normalizedRole && normalizedRole !== "client") {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="max-w-md w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center">
+          <h2 className="text-xl font-extrabold text-slate-900">
+            Access restricted
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            This dashboard is for patients only.
+          </p>
+          <button
+            onClick={logout}
+            className="mt-5 inline-flex w-full justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+            style={{ backgroundColor: BRAND }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl px-4 py-6">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_1fr]">
-          {/* LEFT SIDEBAR */}
-          <aside className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="p-5 border-b border-slate-100">
+          {/* Sidebar */}
+          <aside className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div className="border-b border-slate-100 p-5">
               <div className="flex items-center gap-3">
                 <div className="relative h-10 w-10">
                   <Image
@@ -166,10 +413,10 @@ export default function ClientDashboardPage() {
               </div>
             </div>
 
-            <nav className="p-3">
+            <div className="p-3">
               <button
                 onClick={() => setActive("dashboard")}
-                className={`w-full rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${
+                className={`w-full rounded-xl px-4 py-3 text-left text-sm font-bold transition ${
                   active === "dashboard"
                     ? "bg-slate-900 text-white"
                     : "text-slate-700 hover:bg-slate-50"
@@ -180,7 +427,7 @@ export default function ClientDashboardPage() {
 
               <button
                 onClick={() => setActive("settings")}
-                className={`mt-2 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${
+                className={`mt-2 w-full rounded-xl px-4 py-3 text-left text-sm font-bold transition ${
                   active === "settings"
                     ? "bg-slate-900 text-white"
                     : "text-slate-700 hover:bg-slate-50"
@@ -191,24 +438,18 @@ export default function ClientDashboardPage() {
 
               <div className="my-3 border-t border-slate-100" />
 
-              <Link
-                href="/"
-                className="block w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              <button
+                onClick={logout}
+                className="w-full rounded-xl px-4 py-3 text-left text-sm font-bold text-red-600 hover:bg-red-50"
               >
                 Logout
-              </Link>
-            </nav>
-
-            <div className="p-5 border-t border-slate-100">
-              <p className="text-xs text-slate-500">
-                Need help? Contact the clinic for assistance.
-              </p>
+              </button>
             </div>
           </aside>
 
-          {/* MAIN CONTENT */}
+          {/* Main */}
           <section className="space-y-6">
-            {/* TOP PATIENT CARD */}
+            {/* Top card */}
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
               <div
                 className="p-6"
@@ -221,281 +462,106 @@ export default function ClientDashboardPage() {
                   <div className="flex items-center gap-4">
                     <div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-white/15 ring-1 ring-white/20">
                       <Image
-                        src={patient.avatar}
-                        alt={patient.name}
+                        src="/clinic6.jpg"
+                        alt={patientName}
                         fill
                         className="object-cover"
                       />
                     </div>
 
                     <div className="text-white">
-                      <p className="text-xs font-semibold text-white/85">
+                      <p className="text-xs font-bold text-white/85">
                         Patient Dashboard
                       </p>
                       <h1 className="mt-1 text-xl font-extrabold">
-                        {patient.name}
+                        {patientName}
                       </h1>
-                      <p className="mt-1 text-xs text-white/80">
-                        Member ID: {patient.memberId}
-                      </p>
+                      <p className="mt-1 text-xs text-white/80">{user.email}</p>
                     </div>
                   </div>
 
                   <div className="flex gap-3">
-                    <button className="rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/20 hover:bg-white/20">
-                      View Profile
-                    </button>
-                    <button className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100">
-                      Message Clinic
+                    <button
+                      type="button"
+                      onClick={() => setOpenBooking(true)}
+                      className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-900 hover:bg-slate-100"
+                    >
+                      Book Appointment
                     </button>
                   </div>
                 </div>
               </div>
 
               <div className="p-6">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                  <StatCard
-                    label="Upcoming Appointments"
-                    value={String(appointments.filter((a) => a.status === "Upcoming").length)}
-                    hint="This month"
-                  />
-                  <StatCard label="Completed Visits" value="6" hint="Last 90 days" />
-                  <StatCard label="Prescriptions" value="2" hint="Active" />
-                  <StatCard label="Total Points" value="1,240" hint="Rewards" />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <p className="text-xs font-bold text-slate-500">
+                      Upcoming (Pending)
+                    </p>
+                    <p className="mt-2 text-2xl font-extrabold text-slate-900">
+                      {
+                        appointments.filter(
+                          (a) => String(a.status).toLowerCase() === "pending"
+                        ).length
+                      }
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <p className="text-xs font-bold text-slate-500">
+                      Total Bookings
+                    </p>
+                    <p className="mt-2 text-2xl font-extrabold text-slate-900">
+                      {appointments.length}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <p className="text-xs font-bold text-slate-500">Role</p>
+                    <p className="mt-2 text-sm font-extrabold text-slate-900">
+                      {normalizedRole || "client"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Active session
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* DASHBOARD VIEW */}
-            {active === "dashboard" && (
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
-                {/* APPOINTMENT HISTORY */}
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                  <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-                    <div>
-                      <h2 className="text-sm font-extrabold text-slate-900">
-                        Appointment History
-                      </h2>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Your upcoming and past appointments.
-                      </p>
-                    </div>
-
-                    <button
-                      className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-                      style={{ backgroundColor: BRAND }}
-                      onClick={() => alert("Open create appointment modal (next step).")}
-                    >
-                      <span className="text-lg leading-none">+</span>
-                      Add Appointment
-                    </button>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50 text-xs font-semibold text-slate-600">
-                        <tr>
-                          <th className="px-6 py-3">Appointment Name</th>
-                          <th className="px-6 py-3">Appointment Type</th>
-                          <th className="px-6 py-3">Date</th>
-                          <th className="px-6 py-3">Status</th>
-                          <th className="px-6 py-3">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {appointments.map((a) => (
-                          <tr key={a.id} className="hover:bg-slate-50/60">
-                            <td className="px-6 py-4">
-                              <div className="font-semibold text-slate-900">
-                                {a.doctor}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                Ref: {a.id}
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 text-slate-700">{a.type}</td>
-                            <td className="px-6 py-4 text-slate-700">{a.date}</td>
-                            <td className="px-6 py-4">
-                              <Badge tone={statusTone(a.status)}>{a.status}</Badge>
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="flex flex-wrap gap-2">
-                                <button className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200">
-                                  View
-                                </button>
-                                {a.status === "Upcoming" && (
-                                  <button className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">
-                                    Cancel
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* INBOX */}
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                  <div className="border-b border-slate-100 px-6 py-4">
-                    <h2 className="text-sm font-extrabold text-slate-900">Inbox</h2>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Updates from the clinic.
-                    </p>
-                  </div>
-
-                  <div className="divide-y divide-slate-100">
-                    {inbox.map((m) => (
-                      <button
-                        key={m.id}
-                        className="w-full px-6 py-4 text-left hover:bg-slate-50/60"
-                        onClick={() => alert(`Open message: ${m.subject}`)}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold text-slate-900 truncate">
-                                {m.from}
-                              </p>
-                              {m.unread && (
-                                <span className="h-2 w-2 rounded-full bg-sky-500" />
-                              )}
-                            </div>
-                            <p className="mt-1 text-xs text-slate-600 line-clamp-2">
-                              {m.subject}
-                            </p>
-                          </div>
-                          <p className="text-xs text-slate-500 whitespace-nowrap">
-                            {m.time}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="px-6 py-4">
-                    <button className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50">
-                      View all messages
-                    </button>
-                  </div>
+            {active === "dashboard" ? (
+              <AppointmentsTable
+                appointments={appointments}
+                loading={historyLoading}
+                onAddAppointment={() => setOpenBooking(true)}
+              />
+            ) : recordLoading ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <p className="text-sm font-semibold text-slate-800">
+                  Loading account settings...
+                </p>
+                <div className="mt-4 space-y-3">
+                  <div className="h-12 rounded-xl bg-slate-100" />
+                  <div className="h-12 rounded-xl bg-slate-100" />
+                  <div className="h-12 rounded-xl bg-slate-100" />
                 </div>
               </div>
-            )}
-
-            {/* SETTINGS VIEW */}
-            {active === "settings" && (
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-100 px-6 py-4">
-                  <h2 className="text-sm font-extrabold text-slate-900">
-                    Account Settings
-                  </h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Manage your profile and account preferences.
-                  </p>
-                </div>
-
-                <div className="p-6">
-                  <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-200 p-5">
-                      <p className="text-sm font-semibold text-slate-900">
-                        Profile Information
-                      </p>
-                      <p className="mt-2 text-sm text-slate-600">
-                        Update your basic account details.
-                      </p>
-
-                      <div className="mt-4 space-y-3">
-                        <input
-                          defaultValue={patient.name}
-                          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-                          placeholder="Full name"
-                        />
-                        <input
-                          defaultValue="karl@example.com"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-                          placeholder="Email"
-                        />
-                        <button
-                          className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
-                          style={{ backgroundColor: BRAND }}
-                          onClick={() => alert("Save profile (hook to API next).")}
-                        >
-                          Save Changes
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200 p-5">
-                      <p className="text-sm font-semibold text-slate-900">
-                        Security
-                      </p>
-                      <p className="mt-2 text-sm text-slate-600">
-                        Change your password for better security.
-                      </p>
-
-                      <div className="mt-4 space-y-3">
-                        <input
-                          type="password"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-                          placeholder="Current password"
-                        />
-                        <input
-                          type="password"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-                          placeholder="New password"
-                        />
-                        <input
-                          type="password"
-                          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-                          placeholder="Confirm new password"
-                        />
-                        <button
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 hover:bg-slate-50"
-                          onClick={() => alert("Update password (hook to API next).")}
-                        >
-                          Update Password
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 rounded-2xl border border-slate-200 p-5">
-                    <p className="text-sm font-semibold text-slate-900">
-                      Notifications
-                    </p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      Choose which updates you want to receive.
-                    </p>
-
-                    <div className="mt-4 space-y-3 text-sm text-slate-700">
-                      <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
-                        <span>Email reminders for appointments</span>
-                        <input type="checkbox" defaultChecked />
-                      </label>
-                      <label className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
-                        <span>Clinic announcements and promos</span>
-                        <input type="checkbox" />
-                      </label>
-                    </div>
-
-                    <div className="mt-4">
-                      <button
-                        className="rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-                        style={{ backgroundColor: BRAND }}
-                        onClick={() => alert("Save notification prefs (hook to API next).")}
-                      >
-                        Save Preferences
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            ) : (
+              <AccountSettingsForm
+                userDisplayName={patientName}
+                email={user.email || ""}
+                record={record}
+              />
             )}
           </section>
         </div>
       </div>
+
+      <BookAppointmentModal
+        open={openBooking}
+        onClose={() => setOpenBooking(false)}
+        onBooked={refreshAppointments}
+      />
     </main>
   );
 }
