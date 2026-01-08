@@ -21,27 +21,41 @@ export async function getPatientRecord(uid: string) {
   }
 }
 
-export async function updatePatientRecord(uid: string, data: z.infer<typeof patientRecordSchema>) {
+export async function updatePatientRecord(uid: string, data: z.input<typeof patientRecordSchema>, isStaff: boolean = false) {
   try {
-    // 1. Validate data structure (double check)
+    // 1. Validate data structure
     const validData = patientRecordSchema.parse(data);
 
-    // 2. Check completeness
-    const isProfileComplete = !!(
-      validData.dateOfBirth &&
-      validData.address &&
-      validData.emergencyContact &&
-      validData.gender
-    );
-
-    // 3. Save to Firestore
-    const docRef = doc(db, COLLECTION_NAME, uid);
-    await setDoc(docRef, {
-      ...validData,
+    let finalData: any = {
       uid,
-      isProfileComplete,
       updatedAt: serverTimestamp(),
-    }, { merge: true });
+    };
+
+    if (isStaff) {
+      // Staff can update everything
+      finalData = {
+        ...finalData,
+        ...validData,
+      };
+
+      // Check for clinical completeness
+      finalData.isProfileComplete = !!(
+        validData.dateOfBirth &&
+        validData.address &&
+        validData.emergencyContact &&
+        validData.gender &&
+        validData.medicalHistory // Ensure medical history object exists
+      );
+    } else {
+      // Clients can ONLY update their phone number
+      finalData.phoneNumber = validData.phoneNumber;
+      // We do NOT set isProfileComplete to true here, even if it was true before.
+      // Usually, we keep the existing status.
+    }
+
+    // 2. Save to Firestore
+    const docRef = doc(db, COLLECTION_NAME, uid);
+    await setDoc(docRef, finalData, { merge: true });
 
     return { success: true };
   } catch (error) {

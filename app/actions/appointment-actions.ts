@@ -60,7 +60,7 @@ export async function bookAppointmentAction(
       // If the form provided a phone, update Patient Record
       if (parsedData.phoneNumber) {
         // We assume the data matches the schema requirement.
-        const patientData: z.infer<typeof patientRecordSchema> = {
+        const patientData: z.input<typeof patientRecordSchema> = {
           phoneNumber: parsedData.phoneNumber,
         };
 

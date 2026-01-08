@@ -3,10 +3,10 @@ import { Timestamp } from "firebase/firestore";
 export type Gender = "male" | "female" | "other";
 
 export interface MedicalHistory {
-  allergies?: string[];
-  currentMedications?: string;
-  pastConditions?: string;
-  notes?: string;
+  allergies: string[];      // e.g. ["Penicillin", "Latex"]
+  conditions: string[];     // e.g. ["Diabetes", "Hypertension"]
+  medications?: string;     // Free text for current meds
+  notes?: string;           // "Anxious patient", "Gag reflex"
 }
 
 export interface PatientRecord {
@@ -16,7 +16,7 @@ export interface PatientRecord {
   gender?: Gender;
   address?: string;
   emergencyContact?: string;
-  medicalHistory?: MedicalHistory;
+  medicalHistory: MedicalHistory; // Now required, but can be empty arrays
   isProfileComplete: boolean;
   updatedAt: Timestamp;
 }

@@ -5,6 +5,7 @@ import {
 } from "@/lib/services/auth-service";
 import { updatePatientRecord } from "@/lib/services/patient-service";
 import { updateDentistProfile } from "@/lib/services/dentist-service";
+import { getUserProfile } from "@/lib/services/user-service";
 import {
   signInSchema,
   signUpSchema,
@@ -37,28 +38,51 @@ export async function resetPasswordAction(
   return actionWrapper(resetPasswordSchema, performPasswordReset, data);
 }
 
-export async function updatePatientRecordAction(
-  prevState: AuthState,
-  data: FormData
-): Promise<AuthState> {
-  // We need to get the current user's UID.
-  // Since this runs on the client, we can import auth dynamically or assume the caller handles auth state.
-  // Better pattern: The Service function handles the db write. We just need the UID.
-  // Problem: FormData doesn't contain UID automatically.
-  // Solution: The frontend form must include <input type="hidden" name="uid" value={user.uid} />
-  // OR we use the current auth instance here since it's client side.
-
+export async function updatePatientRecordAction(prevState: AuthState, data: FormData): Promise<AuthState> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
-  return actionWrapper(
-    patientRecordSchema,
-    async (parsedData) => {
-      return await updatePatientRecord(auth.currentUser!.uid, parsedData);
-    },
-    data
-  );
+  // 1. Determine if the caller is Staff
+  const profile = await getUserProfile(auth.currentUser.uid);
+  const isStaff = profile.success && profile.data && profile.data.role !== "client";
+
+  // 2. Determine Target UID
+  let targetUid = auth.currentUser.uid;
+  const requestedUid = data.get("targetUid") as string;
+  
+  if (requestedUid && isStaff) {
+    targetUid = requestedUid;
+  }
+
+  // 2. Manual Parsing for Nested Data (Medical History)
+  const rawData = Object.fromEntries(data);
+  const allergies = (rawData.allergies as string)?.split(",").map(s => s.trim()).filter(Boolean) || [];
+  const conditions = (rawData.conditions as string)?.split(",").map(s => s.trim()).filter(Boolean) || [];
+  
+  const structuredData = {
+    ...rawData,
+    medicalHistory: {
+      allergies,
+      conditions,
+      medications: (rawData.medications as string) || null,
+      notes: (rawData.notes as string) || null
+    }
+  };
+
+  const parsed = patientRecordSchema.safeParse(structuredData);
+
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0].message,
+    };
+  }
+
+  // 3. Pass isStaff flag to the service
+  return await updatePatientRecord(targetUid, parsed.data, !!isStaff);
 }
+
+
 
 export async function updateDentistProfileAction(
   prevState: AuthState,
