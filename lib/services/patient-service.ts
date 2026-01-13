@@ -1,5 +1,5 @@
 import { db } from "../firebase/firebase";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { PatientRecord } from "../types/patient";
 import { patientRecordSchema } from "../validations/auth";
 import { z } from "zod";
@@ -28,7 +28,7 @@ export async function updatePatientRecord(uid: string, data: z.input<typeof pati
 
     const finalData: Partial<PatientRecord> & { updatedAt: ReturnType<typeof serverTimestamp> } = {
       uid,
-      updatedAt: serverTimestamp() as any,
+      updatedAt: serverTimestamp() as unknown as Timestamp,
     };
 
     if (isStaff) {

@@ -20,6 +20,7 @@ export interface DentistProfile {
   uid: string; // Matches UserProfile.uid
   bio?: string;
   specialties: string[];
+  supportedServiceIds: string[]; // List of IDs from the 'services' collection
   schedule: WeeklySchedule;
   updatedAt: Timestamp;
 }
