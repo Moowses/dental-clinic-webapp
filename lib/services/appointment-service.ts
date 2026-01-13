@@ -8,9 +8,10 @@ import {
   serverTimestamp, 
   orderBy,
   doc,
-  updateDoc
+  updateDoc,
+  Timestamp
 } from "firebase/firestore";
-import { Appointment, AppointmentStatus } from "../types/appointment";
+import { Appointment, AppointmentStatus, TreatmentRecord } from "../types/appointment";
 import { ClinicOffDay } from "../types/calendar";
 import { bookingSchema } from "../validations/appointment";
 import { z } from "zod";
@@ -133,5 +134,73 @@ export async function getAllAppointments(date?: string) {
   } catch (error) {
     console.error("Error fetching all appointments:", error);
     return { success: false, error: "Failed to load clinic schedule" };
+  }
+}
+
+export async function assignDentist(appointmentId: string, dentistId: string) {
+  try {
+    const docRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
+    await updateDoc(docRef, { dentistId });
+    return { success: true };
+  } catch (error) {
+    console.error("Error assigning dentist:", error);
+    return { success: false, error: "Failed to assign dentist" };
+  }
+}
+
+export async function getDentistAppointments(dentistId: string, date?: string) {
+  try {
+    let q;
+    if (date) {
+      q = query(
+        collection(db, APPOINTMENTS_COLLECTION),
+        where("dentistId", "==", dentistId),
+        where("date", "==", date),
+        orderBy("time", "asc")
+      );
+    } else {
+      q = query(
+        collection(db, APPOINTMENTS_COLLECTION),
+        where("dentistId", "==", dentistId),
+        orderBy("date", "desc"),
+        orderBy("time", "asc")
+      );
+    }
+    
+    const snap = await getDocs(q);
+    const appointments = snap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Appointment[];
+    
+    return { success: true, data: appointments };
+  } catch (error) {
+    console.error("Error fetching dentist schedule:", error);
+    return { success: false, error: "Failed to load schedule" };
+  }
+}
+
+export async function saveTreatmentRecord(appointmentId: string, data: Omit<TreatmentRecord, 'completedAt' | 'totalBill'>) {
+  try {
+    const docRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
+    
+    // Calculate total bill
+    const totalBill = data.procedures.reduce((sum, p) => sum + p.price, 0);
+
+    const treatment: TreatmentRecord = {
+      ...data,
+      totalBill,
+      completedAt: serverTimestamp() as unknown as Timestamp,
+    };
+
+    await updateDoc(docRef, {
+      status: "completed",
+      treatment
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error saving treatment record:", error);
+    return { success: false, error: "Failed to save clinical record" };
   }
 }
