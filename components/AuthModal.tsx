@@ -7,6 +7,21 @@ import { signInAction, signUpAction } from "@/app/actions/auth-actions";
 
 type Tab = "login" | "signup";
 
+/**
+ * IMPORTANT:
+ * - `useActionState` overload resolution breaks if initialState types don't match.
+ * - `error: null` causes TS to fail (expects string | undefined).
+ */
+type ActionState = {
+  success: boolean;
+  error?: string; // ✅ no null
+};
+
+const initialActionState: ActionState = {
+  success: false,
+  error: undefined, // ✅ no null
+};
+
 function LoadingOverlay({ message }: { message: string }) {
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/80 backdrop-blur">
@@ -24,9 +39,7 @@ function SuccessOverlay() {
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-white/80 backdrop-blur">
       <div className="rounded-2xl border border-emerald-200 bg-white px-6 py-5 shadow-lg">
-        <div className="text-sm font-extrabold text-emerald-700">
-          Success!
-        </div>
+        <div className="text-sm font-extrabold text-emerald-700">Success!</div>
         <div className="mt-1 text-sm text-slate-700">
           Redirecting to your dashboard…
         </div>
@@ -44,10 +57,11 @@ function SignInForm({
   onBusyChange: (busy: boolean) => void;
   onSuccessOverlay: () => void;
 }) {
-  const [state, formAction, isPending] = useActionState(signInAction, {
-    success: false,
-    error: null,
-  });
+  // ✅ Strongly typed to pick the correct overload (state + payload FormData)
+  const [state, formAction, isPending] = useActionState<ActionState, FormData>(
+    signInAction,
+    initialActionState
+  );
 
   useEffect(() => {
     onBusyChange(isPending);
@@ -79,11 +93,11 @@ function SignInForm({
         className="w-full rounded-xl border px-4 py-3 text-sm disabled:opacity-60"
       />
 
-      {state.error && (
+      {state.error ? (
         <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">
           {state.error}
         </div>
-      )}
+      ) : null}
 
       <button
         type="submit"
@@ -105,10 +119,11 @@ function SignUpForm({
   onBusyChange: (busy: boolean) => void;
   onSuccessOverlay: () => void;
 }) {
-  const [state, formAction, isPending] = useActionState(signUpAction, {
-    success: false,
-    error: null,
-  });
+  // ✅ Same fix here
+  const [state, formAction, isPending] = useActionState<ActionState, FormData>(
+    signUpAction,
+    initialActionState
+  );
 
   useEffect(() => {
     onBusyChange(isPending);
@@ -148,11 +163,11 @@ function SignUpForm({
         className="w-full rounded-xl border px-4 py-3 text-sm disabled:opacity-60"
       />
 
-      {state.error && (
+      {state.error ? (
         <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">
           {state.error}
         </div>
-      )}
+      ) : null}
 
       <button
         type="submit"
@@ -181,7 +196,7 @@ export default function AuthModal({
   const [busy, setBusy] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // ✅ FIX: only reset tab when modal OPENS
+  // ✅ only reset tab when modal OPENS
   useEffect(() => {
     if (!open) return;
     setTab(defaultTab);
