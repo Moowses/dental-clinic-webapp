@@ -13,6 +13,7 @@ import {
   getDentistScheduleAction,
   updateAppointmentStatusAction,
   assignDentistAction,
+  recordPaymentAction,
   CalendarAvailability,
   AppointmentWithPatient,
 } from "@/app/actions/appointment-actions";
@@ -185,8 +186,11 @@ function TreatmentModal({
           <div className="border rounded p-2 text-xs space-y-1">
             <p className="font-bold">Inventory</p>
             {tools?.inventory.map((i) => (
-              <div key={i.id} className="flex justify-between items-center">
-                <span>{i.name}</span>
+              <div key={i.id} className="flex justify-between items-center py-1 border-b last:border-0">
+                <div className="flex flex-col">
+                  <span className="font-medium">{i.name}</span>
+                  <span className="text-[9px] text-gray-400 uppercase">{i.category} | Stock: {i.stock}</span>
+                </div>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() =>
@@ -195,16 +199,16 @@ function TreatmentModal({
                         [i.id]: Math.max(0, (usedInv[i.id] || 0) - 1),
                       })
                     }
-                    className="px-1 bg-gray-100 rounded"
+                    className="px-1.5 py-0.5 bg-gray-100 rounded hover:bg-gray-200"
                   >
                     -
                   </button>
-                  <span>{usedInv[i.id] || 0}</span>
+                  <span className="w-4 text-center font-bold">{usedInv[i.id] || 0}</span>
                   <button
                     onClick={() =>
                       setUsedInv({ ...usedInv, [i.id]: (usedInv[i.id] || 0) + 1 })
                     }
-                    className="px-1 bg-gray-100 rounded"
+                    className="px-1.5 py-0.5 bg-gray-100 rounded hover:bg-gray-200"
                   >
                     +
                   </button>
@@ -223,6 +227,72 @@ function TreatmentModal({
         <button onClick={onClose} className="w-full text-xs text-gray-500">
           Cancel
         </button>
+      </div>
+    </div>
+  );
+}
+
+function PaymentModal({ appointment, onClose, onComplete }: { appointment: Appointment; onClose: () => void; onComplete: () => void }) {
+  const [method, setMethod] = useState("cash");
+  const [loading, setLoading] = useState(false);
+
+  const handlePayment = async () => {
+    setLoading(true);
+    await recordPaymentAction(appointment.id, method);
+    onComplete();
+    onClose();
+    setLoading(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl space-y-4">
+        <h3 className="text-lg font-bold border-b pb-2 text-gray-900">Process Payment</h3>
+        
+        <div className="bg-gray-50 p-3 rounded border text-xs space-y-2 text-gray-800">
+          <p className="font-bold text-sm border-b pb-1 text-gray-900">Bill Details</p>
+          
+          <div className="space-y-1">
+            <p className="font-bold text-gray-500 text-[10px] uppercase">Procedures</p>
+            {appointment.treatment?.procedures.map((p, idx) => (
+              <div key={idx} className="flex justify-between">
+                <span>{p.name}</span>
+                <span className="font-medium">${p.price}</span>
+              </div>
+            ))}
+          </div>
+
+          {(appointment.treatment?.inventoryUsed?.length ?? 0) > 0 && (
+            <div className="space-y-1 pt-2 border-t border-gray-200">
+              <p className="font-bold text-gray-500 text-[10px] uppercase">Materials Used</p>
+              {appointment.treatment?.inventoryUsed.map((i, idx) => (
+                <div key={idx} className="flex justify-between text-gray-500">
+                  <span>{i.name}</span>
+                  <span>x{i.quantity}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-between border-t border-gray-300 pt-2 mt-2 text-base font-bold text-gray-900">
+            <span>Total Bill</span>
+            <span>${appointment.treatment?.totalBill || 0}</span>
+          </div>
+        </div>
+        
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-gray-500">Payment Method</label>
+          <select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full p-2 border rounded text-sm text-gray-900">
+            <option value="cash">Cash</option>
+            <option value="card">Credit Card</option>
+            <option value="insurance">Insurance</option>
+          </select>
+        </div>
+
+        <button disabled={loading} onClick={handlePayment} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700">
+          {loading ? "Processing..." : "Confirm Payment"}
+        </button>
+        <button onClick={onClose} className="w-full text-xs text-gray-500 hover:text-gray-700">Cancel</button>
       </div>
     </div>
   );
@@ -491,6 +561,7 @@ function ClinicScheduleSection() {
   const [loading, setLoading] = useState(true);
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [billingId, setBillingId] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -517,10 +588,20 @@ function ClinicScheduleSection() {
         <div key={app.id} className="p-3 bg-white rounded border space-y-2 text-sm shadow-sm">
           <div className="flex justify-between items-center">
             <span><strong>{app.time}</strong> - {app.patientName}</span>
-            <button onClick={() => app.isProfileComplete ? setViewingId(app.patientId) : setEditingId(app.patientId)} 
-                    className={`text-xs px-2 py-1 rounded font-bold ${app.isProfileComplete ? 'bg-purple-100' : 'bg-red-100 text-red-700'}`}>
-              {app.isProfileComplete ? "View" : "⚠️ Complete"}
-            </button>
+            <div className="flex gap-2">
+              {app.status === 'completed' && (
+                app.paymentStatus === 'paid' ? 
+                <span className="text-xs font-bold text-green-600 border border-green-200 bg-green-50 px-2 py-1 rounded">PAID</span> : 
+                <button onClick={() => setBillingId(app.id)} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-200">
+                  Bill: ${app.treatment?.totalBill || 0}
+                </button>
+              )}
+              
+              <button onClick={() => app.isProfileComplete ? setViewingId(app.patientId) : setEditingId(app.patientId)} 
+                      className={`text-xs px-2 py-1 rounded font-bold ${app.isProfileComplete ? 'bg-purple-100' : 'bg-red-100 text-red-700'}`}>
+                {app.isProfileComplete ? "View" : "⚠️ Complete"}
+              </button>
+            </div>
           </div>
           <div className="flex gap-2">
             <select value={app.status} onChange={(e) => updateAppointmentStatusAction(app.id, e.target.value as AppointmentStatus).then(refresh)} className="text-[10px] p-1 border rounded flex-1 uppercase font-bold">
@@ -535,6 +616,7 @@ function ClinicScheduleSection() {
       ))}
       {viewingId && <PatientDetailsModal patientId={viewingId} onClose={() => setViewingId(null)} />}
       {editingId && <PatientEditModal patientId={editingId} onClose={() => { setEditingId(null); refresh(); }} />}
+      {billingId && <PaymentModal appointment={schedule.find(a => a.id === billingId)!} onClose={() => setBillingId(null)} onComplete={refresh} />}
     </div>
   );
 }
@@ -571,11 +653,20 @@ function InventorySection() {
       <h3 className={`${styles.cardTitle} text-teal-900`}>Inventory (Staff)</h3>
       <div className="max-h-32 overflow-y-auto border rounded bg-white p-2 text-xs space-y-1">
         {inventory.map(item => (
-          <div key={item.id} className="flex justify-between items-center py-1 border-b last:border-0">
-            <span>{item.name} ({item.stock})</span>
+          <div key={item.id} className="flex justify-between items-center py-2 border-b last:border-0">
+            <div>
+              <div className="font-bold text-teal-900">{item.name}</div>
+              <div className="text-[10px] text-gray-500 uppercase flex gap-2">
+                <span>{item.category}</span>
+                <span>•</span>
+                <span>Stock: {item.stock} {item.unit}</span>
+                <span>•</span>
+                <span>Min: {item.minThreshold}</span>
+              </div>
+            </div>
             <div className="flex gap-1">
-              <button onClick={() => adjustStockAction(item.id, -1).then(refresh)} className="px-2 bg-red-50 text-red-700 rounded">-</button>
-              <button onClick={() => adjustStockAction(item.id, 1).then(refresh)} className="px-2 bg-green-50 text-green-700 rounded">+</button>
+              <button onClick={() => adjustStockAction(item.id, -1).then(refresh)} className="px-2 bg-red-50 text-red-700 rounded hover:bg-red-100">-</button>
+              <button onClick={() => adjustStockAction(item.id, 1).then(refresh)} className="px-2 bg-green-50 text-green-700 rounded hover:bg-green-100">+</button>
             </div>
           </div>
         ))}
@@ -587,7 +678,12 @@ function InventorySection() {
           <input name="unit" placeholder="Unit" className="w-1/2 p-2 text-sm border rounded" required />
         </div>
         <div className="flex gap-2">
-          <select name="category" className="w-1/2 p-2 text-sm border rounded"><option value="consumable">Consumable</option><option value="material">Material</option></select>
+          <select name="category" className="w-1/2 p-2 text-sm border rounded">
+            <option value="consumable">Consumable</option>
+            <option value="material">Material</option>
+            <option value="instrument">Instrument</option>
+            <option value="medication">Medication</option>
+          </select>
           <input name="minThreshold" type="number" placeholder="Min" className="w-1/2 p-2 text-sm border rounded" required />
         </div>
         <input name="costPerUnit" type="number" placeholder="Cost" className="w-full p-2 text-sm border rounded" required />
