@@ -64,7 +64,7 @@ export default function SiteFooter() {
         </div>
 
         <div className="mt-12 border-t border-white/10 pt-6 text-center text-xs text-white/60">
-          © {new Date().getFullYear()} J4 Dental Clinic. All rights reserved.
+          © {new Date().getFullYear()} karlmosses.com. All rights reserved.
         </div>
       </div>
     </footer>

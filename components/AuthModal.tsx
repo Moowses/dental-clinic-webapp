@@ -1,3 +1,4 @@
+// components/AuthModal.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -7,19 +8,29 @@ import { signInAction, signUpAction } from "@/app/actions/auth-actions";
 
 type Tab = "login" | "signup";
 
-/**
- * IMPORTANT:
- * - `useActionState` overload resolution breaks if initialState types don't match.
- * - `error: null` causes TS to fail (expects string | undefined).
- */
 type ActionState = {
   success: boolean;
-  error?: string; // ✅ no null
+  error?: string;
+};
+
+type AuthModalProps = {
+  open: boolean;
+  onClose: () => void;
+
+  
+  redirectTo?: string;
+
+ 
+  title?: string;
+  subtitle?: string;
+
+  
+  defaultTab?: Tab;
 };
 
 const initialActionState: ActionState = {
   success: false,
-  error: undefined, // ✅ no null
+  error: undefined,
 };
 
 function LoadingOverlay({ message }: { message: string }) {
@@ -57,7 +68,6 @@ function SignInForm({
   onBusyChange: (busy: boolean) => void;
   onSuccessOverlay: () => void;
 }) {
-  // ✅ Strongly typed to pick the correct overload (state + payload FormData)
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     signInAction,
     initialActionState
@@ -119,7 +129,6 @@ function SignUpForm({
   onBusyChange: (busy: boolean) => void;
   onSuccessOverlay: () => void;
 }) {
-  // ✅ Same fix here
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     signUpAction,
     initialActionState
@@ -183,12 +192,11 @@ function SignUpForm({
 export default function AuthModal({
   open,
   onClose,
+  redirectTo = "/client-dashboard",
+  title,
+  subtitle,
   defaultTab = "login",
-}: {
-  open: boolean;
-  onClose: () => void;
-  defaultTab?: Tab;
-}) {
+}: AuthModalProps) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>(defaultTab);
 
@@ -196,7 +204,7 @@ export default function AuthModal({
   const [busy, setBusy] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // ✅ only reset tab when modal OPENS
+  // only reset when modal OPENS
   useEffect(() => {
     if (!open) return;
     setTab(defaultTab);
@@ -207,13 +215,11 @@ export default function AuthModal({
   if (!open) return null;
 
   const handleSuccess = () => {
-    // prevent double click + show success overlay, then redirect
     setShowSuccess(true);
 
-    // small delay so user sees the success overlay (also prevents rapid clicks)
     setTimeout(() => {
       onClose();
-      router.push("/client-dashboard");
+      router.push(redirectTo);
       router.refresh();
     }, 450);
   };
@@ -228,6 +234,7 @@ export default function AuthModal({
         <div className="flex items-center justify-between border-b px-6 py-4">
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => setTab("login")}
               disabled={busy || showSuccess}
               className={`rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60 ${
@@ -239,6 +246,7 @@ export default function AuthModal({
               Log in
             </button>
             <button
+              type="button"
               onClick={() => setTab("signup")}
               disabled={busy || showSuccess}
               className={`rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60 ${
@@ -252,6 +260,7 @@ export default function AuthModal({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             disabled={busy || showSuccess}
             className="text-slate-500 hover:text-slate-700 disabled:opacity-60"
@@ -262,6 +271,22 @@ export default function AuthModal({
         </div>
 
         <div className="px-6 py-6">
+          {/* Booking prompt / optional message */}
+          {(title || subtitle) && (
+            <div className="mb-5">
+              {title ? (
+                <h2 className="text-base font-extrabold text-slate-900">
+                  {title}
+                </h2>
+              ) : null}
+              {subtitle ? (
+                <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                  {subtitle}
+                </p>
+              ) : null}
+            </div>
+          )}
+
           {tab === "login" ? (
             <SignInForm
               onBusyChange={setBusy}
