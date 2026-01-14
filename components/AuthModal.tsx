@@ -1,138 +1,167 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useActionState } from "react";
 import { signInAction, signUpAction } from "@/app/actions/auth-actions";
 
-type State = { success: boolean; error?: string };
+type Tab = "login" | "signup";
 
-function normalizeError(err: unknown) {
-  if (!err) return "";
-  if (Array.isArray(err)) return err.join(", ");
-  if (typeof err === "string") {
-    try {
-      return JSON.parse(err);
-    } catch {
-      return err;
-    }
-  }
-  if (typeof err === "object") return JSON.stringify(err);
-  return String(err);
-}
-
-function SignInForm({ onSuccess }: { onSuccess: () => void }) {
-  const [state, formAction] = useActionState<State, FormData>(signInAction, {
-    success: false,
-  });
-
-  useEffect(() => {
-    if (state?.success) onSuccess();
-  }, [state?.success, onSuccess]);
-
-  const errorText = useMemo(() => normalizeError(state?.error), [state?.error]);
-
+function LoadingOverlay({ message }: { message: string }) {
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-extrabold text-slate-900">Log in</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Access your appointments and account.
-        </p>
-      </div>
-
-      <form action={formAction} className="space-y-3">
-        <input
-          name="email"
-          type="email"
-          placeholder="Email"
-          required
-          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-300"
-        />
-        <input
-          name="password"
-          type="password"
-          placeholder="Password"
-          required
-          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-300"
-        />
-
-        <button
-          type="submit"
-          className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
-          style={{ backgroundColor: "#0E4B5A" }}
-        >
-          Log in
-        </button>
-      </form>
-
-      {!!errorText && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {errorText}
+    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/80 backdrop-blur">
+      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-800" />
+          <div className="text-sm font-semibold text-slate-800">{message}</div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-function SignUpForm({ onSuccess }: { onSuccess: () => void }) {
-  const [state, formAction] = useActionState<State, FormData>(signUpAction, {
+function SuccessOverlay() {
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-white/80 backdrop-blur">
+      <div className="rounded-2xl border border-emerald-200 bg-white px-6 py-5 shadow-lg">
+        <div className="text-sm font-extrabold text-emerald-700">
+          Success!
+        </div>
+        <div className="mt-1 text-sm text-slate-700">
+          Redirecting to your dashboard…
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SignInForm({
+  onSuccess,
+  onBusyChange,
+  onSuccessOverlay,
+}: {
+  onSuccess: () => void;
+  onBusyChange: (busy: boolean) => void;
+  onSuccessOverlay: () => void;
+}) {
+  const [state, formAction, isPending] = useActionState(signInAction, {
     success: false,
+    error: null,
   });
 
   useEffect(() => {
-    if (state?.success) onSuccess();
-  }, [state?.success, onSuccess]);
+    onBusyChange(isPending);
+  }, [isPending, onBusyChange]);
 
-  const errorText = useMemo(() => normalizeError(state?.error), [state?.error]);
+  useEffect(() => {
+    if (state.success) {
+      onSuccessOverlay();
+      onSuccess();
+    }
+  }, [state.success, onSuccess, onSuccessOverlay]);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-extrabold text-slate-900">Sign up</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Create an account to manage appointments.
-        </p>
-      </div>
+    <form action={formAction} className="space-y-4">
+      <input
+        name="email"
+        type="email"
+        placeholder="Email"
+        required
+        disabled={isPending}
+        className="w-full rounded-xl border px-4 py-3 text-sm disabled:opacity-60"
+      />
+      <input
+        name="password"
+        type="password"
+        placeholder="Password"
+        required
+        disabled={isPending}
+        className="w-full rounded-xl border px-4 py-3 text-sm disabled:opacity-60"
+      />
 
-      <form action={formAction} className="space-y-3">
-        <input
-          name="email"
-          type="email"
-          placeholder="Email"
-          required
-          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-300"
-        />
-        <input
-          name="password"
-          type="password"
-          placeholder="Password"
-          required
-          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-300"
-        />
-        <input
-          name="confirmPassword"
-          type="password"
-          placeholder="Confirm password"
-          required
-          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-300"
-        />
-
-        <button
-          type="submit"
-          className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
-          style={{ backgroundColor: "#0E4B5A" }}
-        >
-          Create account
-        </button>
-      </form>
-
-      {!!errorText && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {errorText}
+      {state.error && (
+        <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">
+          {state.error}
         </div>
       )}
-    </div>
+
+      <button
+        type="submit"
+        disabled={isPending}
+        className="w-full rounded-xl bg-[#0E4B5A] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+      >
+        {isPending ? "Logging in..." : "Log in"}
+      </button>
+    </form>
+  );
+}
+
+function SignUpForm({
+  onSuccess,
+  onBusyChange,
+  onSuccessOverlay,
+}: {
+  onSuccess: () => void;
+  onBusyChange: (busy: boolean) => void;
+  onSuccessOverlay: () => void;
+}) {
+  const [state, formAction, isPending] = useActionState(signUpAction, {
+    success: false,
+    error: null,
+  });
+
+  useEffect(() => {
+    onBusyChange(isPending);
+  }, [isPending, onBusyChange]);
+
+  useEffect(() => {
+    if (state.success) {
+      onSuccessOverlay();
+      onSuccess();
+    }
+  }, [state.success, onSuccess, onSuccessOverlay]);
+
+  return (
+    <form action={formAction} className="space-y-4">
+      <input
+        name="email"
+        type="email"
+        placeholder="Email"
+        required
+        disabled={isPending}
+        className="w-full rounded-xl border px-4 py-3 text-sm disabled:opacity-60"
+      />
+      <input
+        name="password"
+        type="password"
+        placeholder="Password"
+        required
+        disabled={isPending}
+        className="w-full rounded-xl border px-4 py-3 text-sm disabled:opacity-60"
+      />
+      <input
+        name="confirmPassword"
+        type="password"
+        placeholder="Confirm Password"
+        required
+        disabled={isPending}
+        className="w-full rounded-xl border px-4 py-3 text-sm disabled:opacity-60"
+      />
+
+      {state.error && (
+        <div className="rounded-xl bg-red-50 p-3 text-sm text-red-600">
+          {state.error}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={isPending}
+        className="w-full rounded-xl bg-[#0E4B5A] px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+      >
+        {isPending ? "Creating account..." : "Create account"}
+      </button>
+    </form>
   );
 }
 
@@ -143,84 +172,94 @@ export default function AuthModal({
 }: {
   open: boolean;
   onClose: () => void;
-  defaultTab?: "login" | "signup";
+  defaultTab?: Tab;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"login" | "signup">(defaultTab);
+  const [tab, setTab] = useState<Tab>(defaultTab);
 
-  useEffect(() => {
-    if (open && tab !== defaultTab) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setTab(defaultTab);
-    }
-  }, [open, defaultTab, tab]);
+  // overall UI states
+  const [busy, setBusy] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
+  // ✅ FIX: only reset tab when modal OPENS
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+    setTab(defaultTab);
+    setBusy(false);
+    setShowSuccess(false);
+  }, [open, defaultTab]);
 
   if (!open) return null;
 
   const handleSuccess = () => {
-    onClose();
-    router.push("/client-dashboard");
+    // prevent double click + show success overlay, then redirect
+    setShowSuccess(true);
+
+    // small delay so user sees the success overlay (also prevents rapid clicks)
+    setTimeout(() => {
+      onClose();
+      router.push("/client-dashboard");
+      router.refresh();
+    }, 450);
   };
 
   return (
-    <div className="fixed inset-0 z-[100]">
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
-        aria-hidden="true"
-      />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="relative w-full max-w-md rounded-2xl bg-white shadow-xl">
+        {/* overlays */}
+        {busy && <LoadingOverlay message="Processing..." />}
+        {showSuccess && <SuccessOverlay />}
 
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setTab("login")}
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                  tab === "login"
-                    ? "bg-slate-900 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                Log in
-              </button>
-              <button
-                onClick={() => setTab("signup")}
-                className={`rounded-full px-4 py-2 text-sm font-semibold ${
-                  tab === "signup"
-                    ? "bg-slate-900 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                Sign up
-              </button>
-            </div>
-
+        <div className="flex items-center justify-between border-b px-6 py-4">
+          <div className="flex gap-2">
             <button
-              onClick={onClose}
-              className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              aria-label="Close"
+              onClick={() => setTab("login")}
+              disabled={busy || showSuccess}
+              className={`rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60 ${
+                tab === "login"
+                  ? "bg-slate-900 text-white"
+                  : "bg-slate-100 text-slate-700"
+              }`}
             >
-              ✕
+              Log in
+            </button>
+            <button
+              onClick={() => setTab("signup")}
+              disabled={busy || showSuccess}
+              className={`rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60 ${
+                tab === "signup"
+                  ? "bg-slate-900 text-white"
+                  : "bg-slate-100 text-slate-700"
+              }`}
+            >
+              Sign up
             </button>
           </div>
 
-          <div className="px-6 py-6">
-            {tab === "login" ? (
-              <SignInForm onSuccess={handleSuccess} />
-            ) : (
-              <SignUpForm onSuccess={handleSuccess} />
-            )}
-          </div>
+          <button
+            onClick={onClose}
+            disabled={busy || showSuccess}
+            className="text-slate-500 hover:text-slate-700 disabled:opacity-60"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-6 py-6">
+          {tab === "login" ? (
+            <SignInForm
+              onBusyChange={setBusy}
+              onSuccessOverlay={() => setShowSuccess(true)}
+              onSuccess={handleSuccess}
+            />
+          ) : (
+            <SignUpForm
+              onBusyChange={setBusy}
+              onSuccessOverlay={() => setShowSuccess(true)}
+              onSuccess={handleSuccess}
+            />
+          )}
         </div>
       </div>
     </div>

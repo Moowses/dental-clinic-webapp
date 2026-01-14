@@ -2,17 +2,37 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import AuthModal from "@/components/AuthModal";
 import { useAuth } from "@/lib/hooks/useAuth";
 
 const BRAND = "#0E4B5A";
 
 export default function SiteHeader() {
+  const router = useRouter();
   const { user, loading, logout } = useAuth();
 
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<"login" | "signup">("login");
+
+  // ✅ When modal closes, re-check auth state (covers successful login via modal)
+  useEffect(() => {
+    if (!authOpen) {
+      router.refresh();
+    }
+  }, [authOpen, router]);
+
+  const handleLogout = async () => {
+    try {
+      // logout might be async in your hook
+      await logout?.();
+    } finally {
+      // ✅ force UI + server components to re-evaluate auth
+      router.refresh();
+      router.push("/");
+    }
+  };
 
   return (
     <>
@@ -55,7 +75,6 @@ export default function SiteHeader() {
               {/* Wait until auth is resolved to avoid flicker */}
               {!loading && user && (
                 <>
-                  {/* Logged-in: "Book Appointment" to "Account" */}
                   <Link
                     href="/client-dashboard"
                     className="hidden rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-95 sm:inline-flex"
@@ -64,9 +83,8 @@ export default function SiteHeader() {
                     Account
                   </Link>
 
-                  {/* Logged-in: "Log in" to "Logout" */}
                   <button
-                    onClick={logout}
+                    onClick={handleLogout}
                     className="inline-flex rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
                   >
                     Logout
@@ -75,18 +93,15 @@ export default function SiteHeader() {
               )}
 
               {!loading && !user && (
-                <>
-                  {/* Logged-out hide booking button; show login */}
-                  <button
-                    onClick={() => {
-                      setAuthTab("login");
-                      setAuthOpen(true);
-                    }}
-                    className="inline-flex rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
-                  >
-                    Log in
-                  </button>
-                </>
+                <button
+                  onClick={() => {
+                    setAuthTab("login");
+                    setAuthOpen(true);
+                  }}
+                  className="inline-flex rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                >
+                  Log in
+                </button>
               )}
 
               <Link
