@@ -4,8 +4,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 
 import { updatePatientRecordAction } from "@/app/actions/auth-actions";
+import { getPatientListAction } from "@/app/actions/patient-actions";
+
 import { getPatientRecord } from "@/lib/services/patient-service";
-import { searchPatients, getUserProfile } from "@/lib/services/user-service";
+import { getUserProfile, searchPatients } from "@/lib/services/user-service";
 
 import type { PatientRecord } from "@/lib/types/patient";
 import type { UserProfile } from "@/lib/types/user";
@@ -122,7 +124,7 @@ function PatientEditForm({
   onClose,
 }: {
   patientId: string;
-  onClose?: () => void;
+  onClose: () => void;
 }) {
   const [record, setRecord] = useState<PatientRecord | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -216,15 +218,13 @@ function PatientEditForm({
         </p>
       ) : null}
 
-      {onClose ? (
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full text-xs text-slate-500 hover:text-slate-700"
-        >
-          Close
-        </button>
-      ) : null}
+      <button
+        type="button"
+        onClick={onClose}
+        className="w-full text-xs text-slate-500 hover:text-slate-700"
+      >
+        Close
+      </button>
     </form>
   );
 }
@@ -257,41 +257,60 @@ export default function PatientRecordsPanel() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
 
-  const [selectedUid, setSelectedUid] = useState<string>("");
+  const [directory, setDirectory] = useState<UserProfile[]>([]);
+  const [dirLoading, setDirLoading] = useState(true);
+
   const [viewingUid, setViewingUid] = useState<string | null>(null);
   const [editingUid, setEditingUid] = useState<string | null>(null);
 
+  // Load directory once (default table data)
+  useEffect(() => {
+    setDirLoading(true);
+    getPatientListAction().then((res: any) => {
+      if (res?.success) setDirectory(res.data || []);
+      setDirLoading(false);
+    });
+  }, []);
+
+  // Search behavior (kept)
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
-      setSelectedUid("");
       return;
     }
 
     const t = setTimeout(async () => {
-      setLoading(true);
+      setSearching(true);
       const res = await searchPatients(searchQuery);
       if (res.success) setSearchResults(res.data || []);
       setShowDropdown(true);
-      setLoading(false);
+      setSearching(false);
     }, 250);
 
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  const rows = useMemo(() => searchResults || [], [searchResults]);
+  // Table data source:
+  // - If searchQuery has value -> use search results
+  // - Else -> use directory
+  const tableRows = useMemo(() => {
+    if (searchQuery.trim()) return searchResults;
+    return directory;
+  }, [searchQuery, searchResults, directory]);
 
-  const selectPatient = (u: UserProfile) => {
-    setSelectedUid(u.uid);
-    setSearchQuery(u.displayName || u.email);
-    setShowDropdown(false);
-  };
+  const tableModeLabel = searchQuery.trim()
+    ? "Search Results"
+    : "Patient Directory (Staff Only)";
 
   return (
-    <Card title="Patient Search & Records" subtitle="Search, view, and complete patient records">
+    <Card
+      title="Patient Search & Records"
+      subtitle="Search, view, and complete patient records"
+    >
       <div className="space-y-3">
+        {/* Search input (kept) */}
         <div className="relative">
           <input
             className={inputBase}
@@ -301,17 +320,20 @@ export default function PatientRecordsPanel() {
             onFocus={() => setShowDropdown(true)}
           />
 
-          {showDropdown && (loading || searchResults.length > 0) && (
+          {/* Optional dropdown (kept) */}
+          {showDropdown && searchQuery.trim() && (searching || searchResults.length > 0) && (
             <ul className="absolute z-10 w-full bg-white border border-slate-200 rounded-2xl shadow-lg max-h-60 overflow-y-auto mt-2">
-              {loading && (
-                <li className="p-3 text-sm text-slate-500">Searching...</li>
-              )}
-              {!loading &&
+              {searching && <li className="p-3 text-sm text-slate-500">Searching...</li>}
+              {!searching &&
                 searchResults.map((u) => (
                   <li
                     key={u.uid}
                     className="p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-100 last:border-0"
-                    onClick={() => selectPatient(u)}
+                    onClick={() => {
+                      setSearchQuery(u.displayName || u.email);
+                      setShowDropdown(false);
+                      // keep results displayed; user can use table actions
+                    }}
                   >
                     <div className="font-bold text-slate-900">
                       {u.displayName || "No Name"}
@@ -323,29 +345,17 @@ export default function PatientRecordsPanel() {
           )}
         </div>
 
-        <div className="flex gap-2">
-          <button
-            disabled={!selectedUid}
-            onClick={() => setViewingUid(selectedUid)}
-            className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-white font-extrabold text-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            View
-          </button>
-          <button
-            disabled={!selectedUid}
-            onClick={() => setEditingUid(selectedUid)}
-            className="flex-1 px-4 py-3 rounded-xl bg-teal-700 text-white font-extrabold text-sm hover:bg-teal-800 disabled:opacity-50"
-          >
-            Edit / Complete
-          </button>
-        </div>
-
         {/* Table */}
         <div className="pt-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-extrabold text-slate-700">Search Results</p>
+            <p className="text-xs font-extrabold text-slate-700">{tableModeLabel}</p>
+
             <p className="text-[11px] text-slate-500">
-              {rows.length ? `${rows.length} result(s)` : "Type to search"}
+              {searchQuery.trim()
+                ? `${tableRows.length} result(s)`
+                : dirLoading
+                ? "Loading directory..."
+                : `${tableRows.length} patient(s)`}
             </p>
           </div>
 
@@ -360,14 +370,22 @@ export default function PatientRecordsPanel() {
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 ? (
+                {dirLoading && !searchQuery.trim() ? (
                   <tr>
                     <td className="p-3 text-slate-500" colSpan={4}>
-                      No records to show. Search a patient to populate the table.
+                      Loading patient directory...
+                    </td>
+                  </tr>
+                ) : tableRows.length === 0 ? (
+                  <tr>
+                    <td className="p-3 text-slate-500" colSpan={4}>
+                      {searchQuery.trim()
+                        ? "No matching patients found."
+                        : "No patients found in directory."}
                     </td>
                   </tr>
                 ) : (
-                  rows.map((u) => (
+                  tableRows.map((u) => (
                     <tr key={u.uid} className="border-t border-slate-100">
                       <td className="p-3">
                         <div className="font-bold text-slate-900">
@@ -401,13 +419,33 @@ export default function PatientRecordsPanel() {
               </tbody>
             </table>
           </div>
+
+          {/* Reset */}
+          {searchQuery.trim() && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setSearchResults([]);
+                setShowDropdown(false);
+              }}
+              className="mt-2 text-xs font-extrabold text-slate-600 hover:text-slate-900"
+            >
+              Clear search (back to directory)
+            </button>
+          )}
         </div>
 
         {viewingUid && (
-          <PatientDetailsModal patientId={viewingUid} onClose={() => setViewingUid(null)} />
+          <PatientDetailsModal
+            patientId={viewingUid}
+            onClose={() => setViewingUid(null)}
+          />
         )}
         {editingUid && (
-          <PatientEditModal patientId={editingUid} onClose={() => setEditingUid(null)} />
+          <PatientEditModal
+            patientId={editingUid}
+            onClose={() => setEditingUid(null)}
+          />
         )}
       </div>
     </Card>
