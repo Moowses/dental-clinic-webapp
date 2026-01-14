@@ -6,7 +6,6 @@ import {
   bookAppointmentAction,
   CalendarAvailability,
   getAvailabilityAction,
-  type Availability,
 } from "@/app/actions/appointment-actions";
 
 export default function BookAppointmentModal({

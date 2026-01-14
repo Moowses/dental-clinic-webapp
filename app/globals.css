@@ -24,3 +24,29 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+input,
+textarea,
+select {
+  background-color: #ffffff !important;
+  color: #111827 !important; /* gray-900 */
+  border: 1px solid #d1d5db; /* gray-300 */
+  border-radius: 0.375rem;
+}
+
+/* Placeholder */
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af; /* gray-400 */
+}
+
+
+
+/* Focus state */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: #6366f1; /* indigo-500 */
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}

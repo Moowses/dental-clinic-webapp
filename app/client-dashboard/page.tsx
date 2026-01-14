@@ -10,7 +10,7 @@ import { getPatientRecord } from "@/lib/services/patient-service";
 import { updatePatientRecordAction } from "@/app/actions/auth-actions";
 import type { Appointment } from "@/lib/types/appointment";
 import type { PatientRecord } from "@/lib/types/patient";
-// import BookAppointmentModal from "@/components/BookAppointmentModal";
+import BookAppointmentModal from "@/components/BookAppointmentModal";
 
 const BRAND = "#0E4B5A";
 
@@ -557,11 +557,12 @@ export default function ClientDashboardPage() {
         </div>
       </div>
 
-      {/* <BookAppointmentModal
+      {/* */}
+      <BookAppointmentModal
         open={openBooking}
         onClose={() => setOpenBooking(false)}
         onBooked={refreshAppointments}
-      /> */}
+      /> 
     </main>
   );
 }
