@@ -375,6 +375,7 @@ export default function ClientDashboardPage() {
           </h2>
           <p className="mt-2 text-sm text-slate-600">
             This dashboard is for patients only.
+            if you administer the clinic, please use the admin link.
           </p>
           <button
             onClick={logout}

@@ -1,10 +1,11 @@
-// app/page.tsx
 "use client";
 
 import Image from "next/image";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/hooks/useAuth";
 
 const AuthModal = dynamic(() => import("@/components/AuthModal"), {
   ssr: false,
@@ -78,15 +79,33 @@ function InfoPill({
 }
 
 export default function HomePage() {
+  const router = useRouter();
+  const { user, loading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
 
-  const openAuth = () => setShowAuth(true);
-  const closeAuth = () => setShowAuth(false);
+  useEffect(() => {
+    router.refresh();
+  }, [router]);
+
+  useEffect(() => {
+    if (!showAuth) router.refresh();
+  }, [showAuth, router]);
+
+  const handleBook = () => {
+    if (loading) return;
+    if (user) {
+      router.push("/client-dashboard");
+      return;
+    }
+    setShowAuth(true);
+  };
+
+  const bookBtnBase =
+    "inline-flex w-fit items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60";
 
   return (
     <>
       <main className="bg-white">
-        {/* HERO */}
         <section className="relative">
           <div className="relative h-[420px] md:h-[520px] w-full">
             <Image
@@ -116,17 +135,16 @@ export default function HomePage() {
                   </p>
 
                   <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
-                    {/* BOOK -> opens AuthModal */}
                     <button
                       type="button"
-                      onClick={openAuth}
-                      className="inline-flex w-fit items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+                      onClick={handleBook}
+                      disabled={loading}
+                      className={bookBtnBase}
                       style={{ backgroundColor: BRAND }}
                     >
                       Book an Appointment
                     </button>
 
-                    {/* Scroll to Services */}
                     <a
                       href="#services"
                       className="inline-flex w-fit items-center justify-center rounded-full border border-white/30 bg-white/10 px-6 py-3 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
@@ -138,12 +156,10 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* subtle bottom fade */}
             <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent" />
           </div>
         </section>
 
-        {/* WELCOME (About Us target) */}
         <section id="about" className="scroll-mt-24 py-14 md:py-20">
           <div className="mx-auto max-w-6xl px-4">
             <div className="grid grid-cols-1 items-center gap-10 md:grid-cols-2">
@@ -173,7 +189,6 @@ export default function HomePage() {
                 </p>
 
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                  {/* Learn About Us -> scroll to Free Consultation banner */}
                   <a
                     href="#offer"
                     className="inline-flex w-fit items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95"
@@ -182,7 +197,6 @@ export default function HomePage() {
                     Learn About Us
                   </a>
 
-                  {/* Contact Us -> scroll to Clinic section */}
                   <a
                     href="#clinic"
                     className="inline-flex w-fit items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
@@ -195,7 +209,6 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* SERVICES target */}
         <section
           id="services"
           className="scroll-mt-24 py-14 md:py-20 bg-slate-50/60"
@@ -232,7 +245,6 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* FREE CONSULTATION BANNER (Learn About Us target) */}
         <section id="offer" className="relative scroll-mt-24">
           <div className="relative h-[360px] md:h-[320px] w-full">
             <Image
@@ -260,17 +272,16 @@ export default function HomePage() {
                       </p>
 
                       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                        {/* BOOK NOW -> opens AuthModal */}
                         <button
                           type="button"
-                          onClick={openAuth}
-                          className="inline-flex w-fit items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
+                          onClick={handleBook}
+                          disabled={loading}
+                          className={bookBtnBase}
                           style={{ backgroundColor: BRAND }}
                         >
                           Book Now
                         </button>
 
-                        {/* Contact Us -> scroll */}
                         <a
                           href="#clinic"
                           className="inline-flex w-fit items-center justify-center rounded-full border border-white/25 bg-white/10 px-6 py-3 text-sm font-semibold text-white backdrop-blur hover:bg-white/15"
@@ -317,7 +328,6 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* WHY CHOOSE (Contact Us target) */}
         <section id="clinic" className="scroll-mt-24 py-14 md:py-20">
           <div className="mx-auto max-w-6xl px-4">
             <div className="text-center">
@@ -372,7 +382,6 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* CTA STRIP */}
         <section className="pb-16">
           <div className="mx-auto max-w-6xl px-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
@@ -386,11 +395,11 @@ export default function HomePage() {
                   </p>
                 </div>
 
-                {/* BOOK -> opens AuthModal */}
                 <button
                   type="button"
-                  onClick={openAuth}
-                  className="inline-flex w-fit items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  onClick={handleBook}
+                  disabled={loading}
+                  className={bookBtnBase}
                   style={{ backgroundColor: BRAND }}
                 >
                   Book an Appointment
@@ -401,11 +410,10 @@ export default function HomePage() {
         </section>
       </main>
 
-      {/*Auth modal */}
       <AuthModal
         open={showAuth}
-        onClose={closeAuth}
-        redirectTo="/appointment"
+        onClose={() => setShowAuth(false)}
+        redirectTo="/client-dashboard"
         title="Continue booking your appointment"
         subtitle="Please log in or create an account to proceed."
       />
