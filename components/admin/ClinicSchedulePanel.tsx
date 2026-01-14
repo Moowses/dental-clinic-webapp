@@ -18,6 +18,10 @@ import { getUserProfile } from "@/lib/services/user-service";
 import type { PatientRecord } from "@/lib/types/patient";
 import type { UserProfile } from "@/lib/types/user";
 import type { AppointmentStatus } from "@/lib/types/appointment";
+type AppointmentWithPatientUI = AppointmentWithPatient & {
+  dentistName?: string;
+};
+
 
 function Card({
   title,
@@ -169,7 +173,7 @@ function PaymentModal({
   onClose,
   onComplete,
 }: {
-  appointment: AppointmentWithPatient;
+  appointment: AppointmentWithPatientUI;
   onClose: () => void;
   onComplete: () => void;
 }) {
@@ -283,7 +287,7 @@ function PaymentModal({
 
 export default function ClinicSchedulePanel() {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [schedule, setSchedule] = useState<AppointmentWithPatient[]>([]);
+  const [schedule, setSchedule] = useState<AppointmentWithPatientUI[]>([]);
   const [dentists, setDentists] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
