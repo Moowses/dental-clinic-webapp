@@ -1,8 +1,24 @@
 import { db } from "../firebase/firebase";
-import { doc, setDoc, getDoc, serverTimestamp, collection, query, where, getDocs, limit, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  getDoc,
+  serverTimestamp,
+  collection,
+  query,
+  where,
+  getDocs,
+  limit,
+  updateDoc,
+  orderBy,
+} from "firebase/firestore";
 import { UserProfile, UserRole } from "../types/user";
 
-export async function createUserDocument(uid: string, email: string, role: UserRole = "client") {
+export async function createUserDocument(
+  uid: string,
+  email: string,
+  role: UserRole = "client"
+) {
   try {
     const userRef = doc(db, "users", uid);
     await setDoc(userRef, {
@@ -19,7 +35,10 @@ export async function createUserDocument(uid: string, email: string, role: UserR
   }
 }
 
-export async function updateUserDocument(uid: string, data: Partial<UserProfile>) {
+export async function updateUserDocument(
+  uid: string,
+  data: Partial<UserProfile>
+) {
   try {
     const userRef = doc(db, "users", uid);
     await updateDoc(userRef, data);
@@ -30,7 +49,9 @@ export async function updateUserDocument(uid: string, data: Partial<UserProfile>
   }
 }
 
-export async function getUserProfile(uid: string): Promise<{ success: boolean; data?: UserProfile; error?: string }> {
+export async function getUserProfile(
+  uid: string
+): Promise<{ success: boolean; data?: UserProfile; error?: string }> {
   try {
     const userRef = doc(db, "users", uid);
     const snap = await getDoc(userRef);
@@ -49,45 +70,29 @@ export async function getUserProfile(uid: string): Promise<{ success: boolean; d
 // Advanced search for MVP (Parallel Email and Name matching)
 
 export async function searchPatients(searchTerm?: string) {
-
   try {
-
     const usersRef = collection(db, "users");
 
     const term = searchTerm?.trim();
 
-
-
     if (!term) {
-
       const q = query(usersRef, where("role", "==", "client"), limit(10));
 
       const snap = await getDocs(q);
 
-      return { success: true, data: snap.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)) };
-
+      return {
+        success: true,
+        data: snap.docs.map(
+          (doc) => ({ uid: doc.id, ...doc.data() } as UserProfile)
+        ),
+      };
     }
 
+    // Firestore doesn't support 'OR' for partial strings on different fields natively.
 
+    // We run two queries in parallel.
 
-        // Firestore doesn't support 'OR' for partial strings on different fields natively.
-
-
-
-        // We run two queries in parallel.
-
-
-
-        
-
-
-
-        const emailQuery = query(
-
-
-
-    
-
+    const emailQuery = query(
       usersRef,
 
       where("role", "==", "client"),
@@ -97,13 +102,9 @@ export async function searchPatients(searchTerm?: string) {
       where("email", "<=", term + "\uf8ff"),
 
       limit(5)
-
     );
 
-
-
     const nameQuery = query(
-
       usersRef,
 
       where("role", "==", "client"),
@@ -113,41 +114,56 @@ export async function searchPatients(searchTerm?: string) {
       where("displayName", "<=", term + "\uf8ff"),
 
       limit(5)
-
     );
 
-
-
     const [emailSnap, nameSnap] = await Promise.all([
-
       getDocs(emailQuery),
 
-      getDocs(nameQuery)
-
+      getDocs(nameQuery),
     ]);
-
-
 
     // Merge and deduplicate results by UID
 
     const resultsMap = new Map<string, UserProfile>();
 
-    
+    emailSnap.docs.forEach((doc) =>
+      resultsMap.set(doc.id, { uid: doc.id, ...doc.data() } as UserProfile)
+    );
 
-    emailSnap.docs.forEach(doc => resultsMap.set(doc.id, { uid: doc.id, ...doc.data() } as UserProfile));
-
-    nameSnap.docs.forEach(doc => resultsMap.set(doc.id, { uid: doc.id, ...doc.data() } as UserProfile));
-
-
+    nameSnap.docs.forEach((doc) =>
+      resultsMap.set(doc.id, { uid: doc.id, ...doc.data() } as UserProfile)
+    );
 
     return { success: true, data: Array.from(resultsMap.values()) };
-
   } catch (error) {
-
     console.error("Error searching patients:", error);
 
     return { success: false, error: "Search failed" };
-
   }
+}
 
+export async function getAllPatients(max: number = 50) {
+  try {
+    const q = query(
+      collection(db, "users"),
+
+      where("role", "==", "client"),
+
+      orderBy("displayName", "asc"),
+
+      limit(max)
+    );
+
+    const snap = await getDocs(q);
+
+    const patients = snap.docs.map(
+      (doc) => ({ uid: doc.id, ...doc.data() } as UserProfile)
+    );
+
+    return { success: true, data: patients };
+  } catch (error) {
+    console.error("Error fetching patient list:", error);
+
+    return { success: false, error: "Failed to load directory" };
+  }
 }

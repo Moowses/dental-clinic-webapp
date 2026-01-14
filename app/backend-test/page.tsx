@@ -26,6 +26,7 @@ import {
   getTreatmentToolsAction,
   completeTreatmentAction,
 } from "@/app/actions/treatment-actions";
+import { getPatientListAction } from "../actions/patient-actions";
 
 import { getPatientRecord } from "@/lib/services/patient-service";
 import { getUserAppointments } from "@/lib/services/appointment-service";
@@ -53,7 +54,9 @@ function StatusBadge({ status }: { status: string }) {
       ? "bg-red-100 text-red-700"
       : "bg-green-100 text-green-700";
   return (
-    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${cls}`}>
+    <span
+      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${cls}`}
+    >
       {status}
     </span>
   );
@@ -91,11 +94,23 @@ function PatientDetailsModal({
           <p>Loading...</p>
         ) : (
           <div className="text-sm space-y-1">
-            <p><strong>Name:</strong> {displayName}</p>
-            <p><strong>Phone:</strong> {record?.phoneNumber}</p>
-            <p><strong>Address:</strong> {record?.address || "N/A"}</p>
-            <p><strong>Allergies:</strong> {record?.medicalHistory?.allergies?.join(", ") || "None"}</p>
-            <p><strong>Conditions:</strong> {record?.medicalHistory?.conditions?.join(", ") || "None"}</p>
+            <p>
+              <strong>Name:</strong> {displayName}
+            </p>
+            <p>
+              <strong>Phone:</strong> {record?.phoneNumber}
+            </p>
+            <p>
+              <strong>Address:</strong> {record?.address || "N/A"}
+            </p>
+            <p>
+              <strong>Allergies:</strong>{" "}
+              {record?.medicalHistory?.allergies?.join(", ") || "None"}
+            </p>
+            <p>
+              <strong>Conditions:</strong>{" "}
+              {record?.medicalHistory?.conditions?.join(", ") || "None"}
+            </p>
           </div>
         )}
         <button
@@ -176,7 +191,9 @@ function TreatmentModal({
                   onChange={(e) =>
                     e.target.checked
                       ? setSelectedProcs([...selectedProcs, p.id])
-                      : setSelectedProcs(selectedProcs.filter((id) => id !== p.id))
+                      : setSelectedProcs(
+                          selectedProcs.filter((id) => id !== p.id)
+                        )
                   }
                 />
                 {p.name} (${p.basePrice})
@@ -186,10 +203,15 @@ function TreatmentModal({
           <div className="border rounded p-2 text-xs space-y-1">
             <p className="font-bold">Inventory</p>
             {tools?.inventory.map((i) => (
-              <div key={i.id} className="flex justify-between items-center py-1 border-b last:border-0">
+              <div
+                key={i.id}
+                className="flex justify-between items-center py-1 border-b last:border-0"
+              >
                 <div className="flex flex-col">
                   <span className="font-medium">{i.name}</span>
-                  <span className="text-[9px] text-gray-400 uppercase">{i.category} | Stock: {i.stock}</span>
+                  <span className="text-[9px] text-gray-400 uppercase">
+                    {i.category} | Stock: {i.stock}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
@@ -203,10 +225,15 @@ function TreatmentModal({
                   >
                     -
                   </button>
-                  <span className="w-4 text-center font-bold">{usedInv[i.id] || 0}</span>
+                  <span className="w-4 text-center font-bold">
+                    {usedInv[i.id] || 0}
+                  </span>
                   <button
                     onClick={() =>
-                      setUsedInv({ ...usedInv, [i.id]: (usedInv[i.id] || 0) + 1 })
+                      setUsedInv({
+                        ...usedInv,
+                        [i.id]: (usedInv[i.id] || 0) + 1,
+                      })
                     }
                     className="px-1.5 py-0.5 bg-gray-100 rounded hover:bg-gray-200"
                   >
@@ -232,7 +259,15 @@ function TreatmentModal({
   );
 }
 
-function PaymentModal({ appointment, onClose, onComplete }: { appointment: Appointment; onClose: () => void; onComplete: () => void }) {
+function PaymentModal({
+  appointment,
+  onClose,
+  onComplete,
+}: {
+  appointment: Appointment;
+  onClose: () => void;
+  onComplete: () => void;
+}) {
   const [method, setMethod] = useState("cash");
   const [loading, setLoading] = useState(false);
 
@@ -247,13 +282,19 @@ function PaymentModal({ appointment, onClose, onComplete }: { appointment: Appoi
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl space-y-4">
-        <h3 className="text-lg font-bold border-b pb-2 text-gray-900">Process Payment</h3>
-        
+        <h3 className="text-lg font-bold border-b pb-2 text-gray-900">
+          Process Payment
+        </h3>
+
         <div className="bg-gray-50 p-3 rounded border text-xs space-y-2 text-gray-800">
-          <p className="font-bold text-sm border-b pb-1 text-gray-900">Bill Details</p>
-          
+          <p className="font-bold text-sm border-b pb-1 text-gray-900">
+            Bill Details
+          </p>
+
           <div className="space-y-1">
-            <p className="font-bold text-gray-500 text-[10px] uppercase">Procedures</p>
+            <p className="font-bold text-gray-500 text-[10px] uppercase">
+              Procedures
+            </p>
             {appointment.treatment?.procedures.map((p, idx) => (
               <div key={idx} className="flex justify-between">
                 <span>{p.name}</span>
@@ -264,7 +305,9 @@ function PaymentModal({ appointment, onClose, onComplete }: { appointment: Appoi
 
           {(appointment.treatment?.inventoryUsed?.length ?? 0) > 0 && (
             <div className="space-y-1 pt-2 border-t border-gray-200">
-              <p className="font-bold text-gray-500 text-[10px] uppercase">Materials Used</p>
+              <p className="font-bold text-gray-500 text-[10px] uppercase">
+                Materials Used
+              </p>
               {appointment.treatment?.inventoryUsed.map((i, idx) => (
                 <div key={idx} className="flex justify-between text-gray-500">
                   <span>{i.name}</span>
@@ -279,20 +322,35 @@ function PaymentModal({ appointment, onClose, onComplete }: { appointment: Appoi
             <span>${appointment.treatment?.totalBill || 0}</span>
           </div>
         </div>
-        
+
         <div className="space-y-1">
-          <label className="text-xs font-bold text-gray-500">Payment Method</label>
-          <select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full p-2 border rounded text-sm text-gray-900">
+          <label className="text-xs font-bold text-gray-500">
+            Payment Method
+          </label>
+          <select
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+            className="w-full p-2 border rounded text-sm text-gray-900"
+          >
             <option value="cash">Cash</option>
             <option value="card">Credit Card</option>
             <option value="insurance">Insurance</option>
           </select>
         </div>
 
-        <button disabled={loading} onClick={handlePayment} className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700">
+        <button
+          disabled={loading}
+          onClick={handlePayment}
+          className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700"
+        >
           {loading ? "Processing..." : "Confirm Payment"}
         </button>
-        <button onClick={onClose} className="w-full text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+        <button
+          onClick={onClose}
+          className="w-full text-xs text-gray-500 hover:text-gray-700"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -332,26 +390,80 @@ function PatientEditForm({
     <form action={formAction} className="space-y-3">
       <input type="hidden" name="targetUid" value={patientId} />
       <div className="grid grid-cols-2 gap-2">
-        <input name="displayName" defaultValue={displayName} className="w-full p-2 border rounded text-sm" placeholder="Full Name" />
-        <input name="phoneNumber" defaultValue={record?.phoneNumber} className="w-full p-2 border rounded text-sm" placeholder="Phone" />
+        <input
+          name="displayName"
+          defaultValue={displayName}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Full Name"
+        />
+        <input
+          name="phoneNumber"
+          defaultValue={record?.phoneNumber}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Phone"
+        />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <input name="dateOfBirth" type="date" defaultValue={record?.dateOfBirth} className="w-full p-2 border rounded text-sm" />
-        <select name="gender" defaultValue={record?.gender || "male"} className="w-full p-2 border rounded text-sm">
-          <option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
+        <input
+          name="dateOfBirth"
+          type="date"
+          defaultValue={record?.dateOfBirth}
+          className="w-full p-2 border rounded text-sm"
+        />
+        <select
+          name="gender"
+          defaultValue={record?.gender || "male"}
+          className="w-full p-2 border rounded text-sm"
+        >
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+          <option value="other">Other</option>
         </select>
       </div>
-      <input name="address" defaultValue={record?.address} className="w-full p-2 border rounded text-sm" placeholder="Address" />
+      <input
+        name="address"
+        defaultValue={record?.address}
+        className="w-full p-2 border rounded text-sm"
+        placeholder="Address"
+      />
       <div className="grid grid-cols-2 gap-2">
-        <input name="allergies" defaultValue={record?.medicalHistory?.allergies?.join(", ")} className="w-full p-2 border rounded text-sm" placeholder="Allergies" />
-        <input name="conditions" defaultValue={record?.medicalHistory?.conditions?.join(", ")} className="w-full p-2 border rounded text-sm" placeholder="Conditions" />
+        <input
+          name="allergies"
+          defaultValue={record?.medicalHistory?.allergies?.join(", ")}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Allergies"
+        />
+        <input
+          name="conditions"
+          defaultValue={record?.medicalHistory?.conditions?.join(", ")}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Conditions"
+        />
       </div>
-      <textarea name="medications" defaultValue={record?.medicalHistory?.medications || ""} className="w-full p-2 border rounded text-sm h-12" placeholder="Medications" />
-      <button disabled={isPending} className="w-full bg-green-700 text-white py-2 rounded font-bold">
+      <textarea
+        name="medications"
+        defaultValue={record?.medicalHistory?.medications || ""}
+        className="w-full p-2 border rounded text-sm h-12"
+        placeholder="Medications"
+      />
+      <button
+        disabled={isPending}
+        className="w-full bg-green-700 text-white py-2 rounded font-bold"
+      >
         {isPending ? "Saving..." : "Save Patient Record"}
       </button>
-      {state.success && <p className="text-green-600 text-xs text-center">Update Successful</p>}
-      {onClose && <button type="button" onClick={onClose} className="w-full text-xs text-gray-500 mt-2">Close</button>}
+      {state.success && (
+        <p className="text-green-600 text-xs text-center">Update Successful</p>
+      )}
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full text-xs text-gray-500 mt-2"
+        >
+          Close
+        </button>
+      )}
     </form>
   );
 }
@@ -366,7 +478,9 @@ function PatientEditModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl space-y-4">
-        <h3 className="text-lg font-bold border-b pb-2">Finalize Patient Record</h3>
+        <h3 className="text-lg font-bold border-b pb-2">
+          Finalize Patient Record
+        </h3>
         <PatientEditForm patientId={patientId} onClose={onClose} />
       </div>
     </div>
@@ -389,20 +503,30 @@ function HistorySection() {
     }
   }, [user]);
 
-  if (loading) return <div className="text-sm text-gray-500">Loading history...</div>;
+  if (loading)
+    return <div className="text-sm text-gray-500">Loading history...</div>;
 
   return (
     <div className={`${styles.cardGray} space-y-4`}>
       <h3 className={styles.cardTitle}>My Appointment History</h3>
       {appointments.length === 0 ? (
-        <p className="text-sm text-gray-500 italic">No appointments booked yet.</p>
+        <p className="text-sm text-gray-500 italic">
+          No appointments booked yet.
+        </p>
       ) : (
         <div className="space-y-3">
           {appointments.map((app) => (
-            <div key={app.id} className="flex justify-between items-center p-3 border rounded bg-gray-50">
+            <div
+              key={app.id}
+              className="flex justify-between items-center p-3 border rounded bg-gray-50"
+            >
               <div>
-                <p className="font-bold text-sm text-gray-800">{app.serviceType}</p>
-                <p className="text-xs text-gray-600">{app.date} @ {app.time}</p>
+                <p className="font-bold text-sm text-gray-800">
+                  {app.serviceType}
+                </p>
+                <p className="text-xs text-gray-600">
+                  {app.date} @ {app.time}
+                </p>
               </div>
               <StatusBadge status={app.status} />
             </div>
@@ -418,7 +542,9 @@ function BookingSection() {
   const [state, formAction, isPending] = useActionState(bookAppointmentAction, {
     success: false,
   });
-  const [availability, setAvailability] = useState<CalendarAvailability | null>(null);
+  const [availability, setAvailability] = useState<CalendarAvailability | null>(
+    null
+  );
   const [selectedDate, setSelectedDate] = useState("");
 
   useEffect(() => {
@@ -429,45 +555,107 @@ function BookingSection() {
 
   return (
     <div className={`${styles.cardBlue} space-y-4`}>
-      <h3 className={`${styles.cardTitle} text-blue-900`}>Book an Appointment</h3>
+      <h3 className={`${styles.cardTitle} text-blue-900`}>
+        Book an Appointment
+      </h3>
       <form action={formAction} className="space-y-3">
         {!user?.displayName && (
-          <input name="displayName" placeholder="Your Name" required className="w-full p-2 border rounded text-sm" />
+          <input
+            name="displayName"
+            placeholder="Your Name"
+            required
+            className="w-full p-2 border rounded text-sm"
+          />
         )}
-        <select name="serviceType" required className="w-full p-2 border rounded text-sm">
+        <select
+          name="serviceType"
+          required
+          className="w-full p-2 border rounded text-sm"
+        >
           <option value="">Select Service</option>
           <option value="General Checkup">General Checkup</option>
           <option value="Cleaning">Cleaning</option>
           <option value="Emergency">Emergency</option>
         </select>
-        <input name="date" type="date" required className="w-full p-2 border rounded text-sm" onChange={(e) => setSelectedDate(e.target.value)} />
-        {availability?.isHoliday && <p className="text-xs font-bold text-red-600 italic">Clinic Closed: {availability.holidayReason}</p>}
-        <select name="time" required className="w-full p-2 border rounded text-sm" disabled={availability?.isHoliday}>
+        <input
+          name="date"
+          type="date"
+          required
+          className="w-full p-2 border rounded text-sm"
+          onChange={(e) => setSelectedDate(e.target.value)}
+        />
+        {availability?.isHoliday && (
+          <p className="text-xs font-bold text-red-600 italic">
+            Clinic Closed: {availability.holidayReason}
+          </p>
+        )}
+        <select
+          name="time"
+          required
+          className="w-full p-2 border rounded text-sm"
+          disabled={availability?.isHoliday}
+        >
           <option value="">Select Time</option>
-          {["08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"].map(t => (
-            <option key={t} value={t} disabled={availability?.takenSlots.includes(t)}>{t} {availability?.takenSlots.includes(t) ? "(Booked)" : ""}</option>
+          {[
+            "08:00",
+            "09:00",
+            "10:00",
+            "11:00",
+            "13:00",
+            "14:00",
+            "15:00",
+            "16:00",
+          ].map((t) => (
+            <option
+              key={t}
+              value={t}
+              disabled={availability?.takenSlots.includes(t)}
+            >
+              {t} {availability?.takenSlots.includes(t) ? "(Booked)" : ""}
+            </option>
           ))}
         </select>
-        <button disabled={isPending || availability?.isHoliday} className="w-full bg-blue-700 text-white py-2 rounded font-bold hover:bg-blue-800 disabled:opacity-50">
+        <button
+          disabled={isPending || availability?.isHoliday}
+          className="w-full bg-blue-700 text-white py-2 rounded font-bold hover:bg-blue-800 disabled:opacity-50"
+        >
           {isPending ? "Processing..." : "Book Now"}
         </button>
-        {state.success && <p className="text-green-600 text-sm font-bold text-center">Success!</p>}
-        {state.error && <p className="text-red-600 text-sm font-bold text-center">{state.error}</p>}
+        {state.success && (
+          <p className="text-green-600 text-sm font-bold text-center">
+            Success!
+          </p>
+        )}
+        {state.error && (
+          <p className="text-red-600 text-sm font-bold text-center">
+            {state.error}
+          </p>
+        )}
       </form>
     </div>
   );
 }
 
-function PatientSection({ externalTargetUid, setExternalTargetUid }: { externalTargetUid?: string; setExternalTargetUid?: (uid: string) => void }) {
+function PatientSection({
+  externalTargetUid,
+  setExternalTargetUid,
+}: {
+  externalTargetUid?: string;
+  setExternalTargetUid?: (uid: string) => void;
+}) {
   const { user, role } = useAuth();
   const [record, setRecord] = useState<PatientRecord | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(true);
-  const [state, formAction, isPending] = useActionState(updatePatientRecordAction, { success: false });
-  
+  const [state, formAction, isPending] = useActionState(
+    updatePatientRecordAction,
+    { success: false }
+  );
+
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
   const [localTargetUid, setLocalTargetUid] = useState<string>("");
-  const targetUid = externalTargetUid !== undefined ? externalTargetUid : localTargetUid;
+  const targetUid =
+    externalTargetUid !== undefined ? externalTargetUid : localTargetUid;
   const setTargetUid = setExternalTargetUid || setLocalTargetUid;
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -484,7 +672,7 @@ function PatientSection({ externalTargetUid, setExternalTargetUid }: { externalT
       const res = await searchPatients(searchQuery);
       if (res.success) setSearchResults(res.data || []);
       setShowDropdown(true);
-    }, 300); 
+    }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery, isStaff]);
 
@@ -493,9 +681,13 @@ function PatientSection({ externalTargetUid, setExternalTargetUid }: { externalT
     if (uidToFetch) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(true);
-      Promise.all([getPatientRecord(uidToFetch), getUserProfile(uidToFetch)]).then(([recordRes, profileRes]) => {
+      Promise.all([
+        getPatientRecord(uidToFetch),
+        getUserProfile(uidToFetch),
+      ]).then(([recordRes, profileRes]) => {
         if (recordRes.success) setRecord(recordRes.data || null);
-        if (profileRes.success && profileRes.data) setDisplayName(profileRes.data.displayName || "");
+        if (profileRes.success && profileRes.data)
+          setDisplayName(profileRes.data.displayName || "");
         setLoading(false);
       });
     }
@@ -512,14 +704,26 @@ function PatientSection({ externalTargetUid, setExternalTargetUid }: { externalT
 
   return (
     <div className={`${styles.cardGreen} space-y-4`}>
-      <h3 className={`${styles.cardTitle} text-green-900`}>Patient Record {isStaff && "(Staff View)"}</h3>
+      <h3 className={`${styles.cardTitle} text-green-900`}>
+        Patient Record {isStaff && "(Staff View)"}
+      </h3>
       {isStaff && (
         <div className="relative">
-          <input className="w-full border p-2 text-sm rounded shadow-sm" placeholder="Search Patients..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onFocus={() => setShowDropdown(true)} />
+          <input
+            className="w-full border p-2 text-sm rounded shadow-sm"
+            placeholder="Search Patients..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setShowDropdown(true)}
+          />
           {showDropdown && searchResults.length > 0 && (
             <ul className="absolute z-10 w-full bg-white border rounded shadow-lg max-h-40 overflow-y-auto mt-1">
-              {searchResults.map(u => (
-                <li key={u.uid} className="p-2 hover:bg-green-50 cursor-pointer text-sm border-b last:border-0" onClick={() => selectPatient(u)}>
+              {searchResults.map((u) => (
+                <li
+                  key={u.uid}
+                  className="p-2 hover:bg-green-50 cursor-pointer text-sm border-b last:border-0"
+                  onClick={() => selectPatient(u)}
+                >
                   {u.displayName || u.email}
                 </li>
               ))}
@@ -528,27 +732,89 @@ function PatientSection({ externalTargetUid, setExternalTargetUid }: { externalT
         </div>
       )}
       <form action={formAction} className="space-y-2">
-        <input type="hidden" name="targetUid" value={targetUid || user?.uid || ""} />
-        <label className="block text-[10px] uppercase font-bold text-green-800">Display Name</label>
-        <input name="displayName" defaultValue={displayName} key={displayName} className="w-full p-2 border rounded text-sm" />
-        <label className="block text-[10px] uppercase font-bold text-green-800">Phone</label>
-        <input name="phoneNumber" defaultValue={record?.phoneNumber} className="w-full p-2 border rounded text-sm" />
+        <input
+          type="hidden"
+          name="targetUid"
+          value={targetUid || user?.uid || ""}
+        />
+        <label className="block text-[10px] uppercase font-bold text-green-800">
+          Display Name
+        </label>
+        <input
+          name="displayName"
+          defaultValue={displayName}
+          key={displayName}
+          className="w-full p-2 border rounded text-sm"
+        />
+        <label className="block text-[10px] uppercase font-bold text-green-800">
+          Phone
+        </label>
+        <input
+          name="phoneNumber"
+          defaultValue={record?.phoneNumber}
+          className="w-full p-2 border rounded text-sm"
+        />
         {isStaff && (
           <div className="pt-2 border-t mt-2 space-y-2">
-            <p className="text-[10px] text-red-700 font-bold uppercase italic">Clinical Access</p>
-            <input name="dateOfBirth" type="date" defaultValue={record?.dateOfBirth} className="w-full p-2 border rounded text-sm" />
-            <select name="gender" className="w-full p-2 border rounded text-sm" defaultValue={record?.gender || "male"}>
-              <option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
+            <p className="text-[10px] text-red-700 font-bold uppercase italic">
+              Clinical Access
+            </p>
+            <input
+              name="dateOfBirth"
+              type="date"
+              defaultValue={record?.dateOfBirth}
+              className="w-full p-2 border rounded text-sm"
+            />
+            <select
+              name="gender"
+              className="w-full p-2 border rounded text-sm"
+              defaultValue={record?.gender || "male"}
+            >
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
             </select>
-            <input name="address" defaultValue={record?.address} className="w-full p-2 border rounded text-sm" placeholder="Address" />
-            <input name="emergencyContact" placeholder="Emergency Contact" className="w-full p-2 border rounded text-sm" defaultValue={record?.emergencyContact} />
-            <p className="text-xs font-bold text-green-800 mt-2">Medical History</p>
-            <input name="allergies" placeholder="Allergies (comma separated)" className="w-full p-2 border rounded text-sm" defaultValue={record?.medicalHistory?.allergies?.join(", ")} />
-            <input name="conditions" placeholder="Conditions (comma separated)" className="w-full p-2 border rounded text-sm" defaultValue={record?.medicalHistory?.conditions?.join(", ")} />
-            <textarea name="medications" placeholder="Medications" className="w-full p-2 border rounded text-sm h-12" defaultValue={record?.medicalHistory?.medications || ""} />
+            <input
+              name="address"
+              defaultValue={record?.address}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Address"
+            />
+            <input
+              name="emergencyContact"
+              placeholder="Emergency Contact"
+              className="w-full p-2 border rounded text-sm"
+              defaultValue={record?.emergencyContact}
+            />
+            <p className="text-xs font-bold text-green-800 mt-2">
+              Medical History
+            </p>
+            <input
+              name="allergies"
+              placeholder="Allergies (comma separated)"
+              className="w-full p-2 border rounded text-sm"
+              defaultValue={record?.medicalHistory?.allergies?.join(", ")}
+            />
+            <input
+              name="conditions"
+              placeholder="Conditions (comma separated)"
+              className="w-full p-2 border rounded text-sm"
+              defaultValue={record?.medicalHistory?.conditions?.join(", ")}
+            />
+            <textarea
+              name="medications"
+              placeholder="Medications"
+              className="w-full p-2 border rounded text-sm h-12"
+              defaultValue={record?.medicalHistory?.medications || ""}
+            />
           </div>
         )}
-        <button disabled={isPending} className="w-full bg-green-700 text-white py-2 rounded font-bold hover:bg-green-800">Update</button>
+        <button
+          disabled={isPending}
+          className="w-full bg-green-700 text-white py-2 rounded font-bold hover:bg-green-800"
+        >
+          Update
+        </button>
       </form>
     </div>
   );
@@ -566,7 +832,7 @@ function ClinicScheduleSection() {
   const refresh = useCallback(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    getClinicScheduleAction(date).then(res => {
+    getClinicScheduleAction(date).then((res) => {
       if (res.success && res.data) setSchedule(res.data);
       setLoading(false);
     });
@@ -574,70 +840,181 @@ function ClinicScheduleSection() {
 
   useEffect(() => {
     refresh();
-    getDentistListAction().then(res => { if (res.success && res.data) setDentists(res.data as any); });
+    getDentistListAction().then((res) => {
+      if (res.success && res.data) setDentists(res.data as any);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
   return (
     <div className={`${styles.cardPurple} space-y-4`}>
       <div className="flex justify-between items-center">
-        <h3 className={`${styles.cardTitle} text-purple-900`}>Clinic Schedule</h3>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="text-sm p-1 border rounded" />
+        <h3 className={`${styles.cardTitle} text-purple-900`}>
+          Clinic Schedule
+        </h3>
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="text-sm p-1 border rounded"
+        />
       </div>
-      {loading ? <p>...</p> : schedule.map(app => (
-        <div key={app.id} className="p-3 bg-white rounded border space-y-2 text-sm shadow-sm">
-          <div className="flex justify-between items-center">
-            <span><strong>{app.time}</strong> - {app.patientName}</span>
-            <div className="flex gap-2">
-              {app.status === 'completed' && (
-                app.paymentStatus === 'paid' ? 
-                <span className="text-xs font-bold text-green-600 border border-green-200 bg-green-50 px-2 py-1 rounded">PAID</span> : 
-                <button onClick={() => setBillingId(app.id)} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-200">
-                  Bill: ${app.treatment?.totalBill || 0}
+      {loading ? (
+        <p>...</p>
+      ) : (
+        schedule.map((app) => (
+          <div
+            key={app.id}
+            className="p-3 bg-white rounded border space-y-2 text-sm shadow-sm"
+          >
+            <div className="flex justify-between items-center">
+              <span>
+                <strong>{app.time}</strong> - {app.patientName}
+              </span>
+              <div className="flex gap-2">
+                {app.status === "completed" &&
+                  (app.paymentStatus === "paid" ? (
+                    <span className="text-xs font-bold text-green-600 border border-green-200 bg-green-50 px-2 py-1 rounded">
+                      PAID
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setBillingId(app.id)}
+                      className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-200"
+                    >
+                      Bill: ${app.treatment?.totalBill || 0}
+                    </button>
+                  ))}
+
+                <button
+                  onClick={() =>
+                    app.isProfileComplete
+                      ? setViewingId(app.patientId)
+                      : setEditingId(app.patientId)
+                  }
+                  className={`text-xs px-2 py-1 rounded font-bold ${
+                    app.isProfileComplete
+                      ? "bg-purple-100"
+                      : "bg-red-100 text-red-700"
+                  }`}
+                >
+                  {app.isProfileComplete ? "View" : "⚠️ Complete"}
                 </button>
-              )}
-              
-              <button onClick={() => app.isProfileComplete ? setViewingId(app.patientId) : setEditingId(app.patientId)} 
-                      className={`text-xs px-2 py-1 rounded font-bold ${app.isProfileComplete ? 'bg-purple-100' : 'bg-red-100 text-red-700'}`}>
-                {app.isProfileComplete ? "View" : "⚠️ Complete"}
-              </button>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <select
+                value={app.status}
+                onChange={(e) =>
+                  updateAppointmentStatusAction(
+                    app.id,
+                    e.target.value as AppointmentStatus
+                  ).then(refresh)
+                }
+                className="text-[10px] p-1 border rounded flex-1 uppercase font-bold"
+              >
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <select
+                value={app.dentistId || ""}
+                onChange={(e) =>
+                  assignDentistAction(app.id, e.target.value).then(refresh)
+                }
+                className="text-[10px] p-1 border rounded flex-1"
+              >
+                <option value="">Assign Dentist</option>
+                {dentists.map((d) => (
+                  <option key={d.uid} value={d.uid}>
+                    {d.displayName || d.email}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
-          <div className="flex gap-2">
-            <select value={app.status} onChange={(e) => updateAppointmentStatusAction(app.id, e.target.value as AppointmentStatus).then(refresh)} className="text-[10px] p-1 border rounded flex-1 uppercase font-bold">
-              <option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option>
-            </select>
-            <select value={app.dentistId || ""} onChange={(e) => assignDentistAction(app.id, e.target.value).then(refresh)} className="text-[10px] p-1 border rounded flex-1">
-              <option value="">Assign Dentist</option>
-              {dentists.map(d => <option key={d.uid} value={d.uid}>{d.displayName || d.email}</option>)}
-            </select>
-          </div>
-        </div>
-      ))}
-      {viewingId && <PatientDetailsModal patientId={viewingId} onClose={() => setViewingId(null)} />}
-      {editingId && <PatientEditModal patientId={editingId} onClose={() => { setEditingId(null); refresh(); }} />}
-      {billingId && <PaymentModal appointment={schedule.find(a => a.id === billingId)!} onClose={() => setBillingId(null)} onComplete={refresh} />}
+        ))
+      )}
+      {viewingId && (
+        <PatientDetailsModal
+          patientId={viewingId}
+          onClose={() => setViewingId(null)}
+        />
+      )}
+      {editingId && (
+        <PatientEditModal
+          patientId={editingId}
+          onClose={() => {
+            setEditingId(null);
+            refresh();
+          }}
+        />
+      )}
+      {billingId && (
+        <PaymentModal
+          appointment={schedule.find((a) => a.id === billingId)!}
+          onClose={() => setBillingId(null)}
+          onComplete={refresh}
+        />
+      )}
     </div>
   );
 }
 
 function ProceduresSection() {
   const [procedures, setProcedures] = useState<DentalProcedure[]>([]);
-  const [state, formAction, isPending] = useActionState(createProcedureAction, { success: false });
-  useEffect(() => { getAllProcedures().then(res => { if(res.success) setProcedures(res.data || []); }); }, [state.success]);
+  const [state, formAction, isPending] = useActionState(createProcedureAction, {
+    success: false,
+  });
+  useEffect(() => {
+    getAllProcedures().then((res) => {
+      if (res.success) setProcedures(res.data || []);
+    });
+  }, [state.success]);
   return (
     <div className={`${styles.cardOrange} space-y-4`}>
-      <h3 className={`${styles.cardTitle} text-orange-900`}>Procedures (Admin)</h3>
+      <h3 className={`${styles.cardTitle} text-orange-900`}>
+        Procedures (Admin)
+      </h3>
       <div className="max-h-32 overflow-y-auto border rounded bg-white p-2 text-xs space-y-1">
-        {procedures.map(p => <div key={p.id} className="flex justify-between border-b pb-1"><span>{p.code} - {p.name}</span><span className="font-bold">${p.basePrice}</span></div>)}
+        {procedures.map((p) => (
+          <div key={p.id} className="flex justify-between border-b pb-1">
+            <span>
+              {p.code} - {p.name}
+            </span>
+            <span className="font-bold">${p.basePrice}</span>
+          </div>
+        ))}
       </div>
       <form action={formAction} className="space-y-2">
         <div className="flex gap-2">
-          <input name="code" placeholder="Code" className="w-1/3 p-2 text-sm border rounded" required />
-          <input name="name" placeholder="Name" className="w-2/3 p-2 text-sm border rounded" required />
+          <input
+            name="code"
+            placeholder="Code"
+            className="w-1/3 p-2 text-sm border rounded"
+            required
+          />
+          <input
+            name="name"
+            placeholder="Name"
+            className="w-2/3 p-2 text-sm border rounded"
+            required
+          />
         </div>
-        <input name="basePrice" type="number" placeholder="Price" className="w-full p-2 text-sm border rounded" required />
-        <button disabled={isPending} className="w-full bg-orange-700 text-white py-2 rounded font-bold">Add</button>
+        <input
+          name="basePrice"
+          type="number"
+          placeholder="Price"
+          className="w-full p-2 text-sm border rounded"
+          required
+        />
+        <button
+          disabled={isPending}
+          className="w-full bg-orange-700 text-white py-2 rounded font-bold"
+        >
+          Add
+        </button>
       </form>
     </div>
   );
@@ -645,37 +1022,77 @@ function ProceduresSection() {
 
 function InventorySection() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [state, formAction, isPending] = useActionState(addInventoryItemAction, { success: false });
-  const refresh = useCallback(() => { getInventory().then(res => { if(res.success) setInventory(res.data || []); }); }, []);
-  useEffect(() => { refresh(); }, [state.success, refresh]);
+  const [state, formAction, isPending] = useActionState(
+    addInventoryItemAction,
+    { success: false }
+  );
+  const refresh = useCallback(() => {
+    getInventory().then((res) => {
+      if (res.success) setInventory(res.data || []);
+    });
+  }, []);
+  useEffect(() => {
+    refresh();
+  }, [state.success, refresh]);
   return (
     <div className={`${styles.cardTeal} space-y-4`}>
       <h3 className={`${styles.cardTitle} text-teal-900`}>Inventory (Staff)</h3>
       <div className="max-h-32 overflow-y-auto border rounded bg-white p-2 text-xs space-y-1">
-        {inventory.map(item => (
-          <div key={item.id} className="flex justify-between items-center py-2 border-b last:border-0">
+        {inventory.map((item) => (
+          <div
+            key={item.id}
+            className="flex justify-between items-center py-2 border-b last:border-0"
+          >
             <div>
               <div className="font-bold text-teal-900">{item.name}</div>
               <div className="text-[10px] text-gray-500 uppercase flex gap-2">
                 <span>{item.category}</span>
                 <span>•</span>
-                <span>Stock: {item.stock} {item.unit}</span>
+                <span>
+                  Stock: {item.stock} {item.unit}
+                </span>
                 <span>•</span>
                 <span>Min: {item.minThreshold}</span>
               </div>
             </div>
             <div className="flex gap-1">
-              <button onClick={() => adjustStockAction(item.id, -1).then(refresh)} className="px-2 bg-red-50 text-red-700 rounded hover:bg-red-100">-</button>
-              <button onClick={() => adjustStockAction(item.id, 1).then(refresh)} className="px-2 bg-green-50 text-green-700 rounded hover:bg-green-100">+</button>
+              <button
+                onClick={() => adjustStockAction(item.id, -1).then(refresh)}
+                className="px-2 bg-red-50 text-red-700 rounded hover:bg-red-100"
+              >
+                -
+              </button>
+              <button
+                onClick={() => adjustStockAction(item.id, 1).then(refresh)}
+                className="px-2 bg-green-50 text-green-700 rounded hover:bg-green-100"
+              >
+                +
+              </button>
             </div>
           </div>
         ))}
       </div>
       <form action={formAction} className="space-y-2 border-t pt-2 mt-2">
-        <input name="name" placeholder="Item Name" className="w-full p-2 text-sm border rounded" required />
+        <input
+          name="name"
+          placeholder="Item Name"
+          className="w-full p-2 text-sm border rounded"
+          required
+        />
         <div className="flex gap-2">
-          <input name="stock" type="number" placeholder="Qty" className="w-1/2 p-2 text-sm border rounded" required />
-          <input name="unit" placeholder="Unit" className="w-1/2 p-2 text-sm border rounded" required />
+          <input
+            name="stock"
+            type="number"
+            placeholder="Qty"
+            className="w-1/2 p-2 text-sm border rounded"
+            required
+          />
+          <input
+            name="unit"
+            placeholder="Unit"
+            className="w-1/2 p-2 text-sm border rounded"
+            required
+          />
         </div>
         <div className="flex gap-2">
           <select name="category" className="w-1/2 p-2 text-sm border rounded">
@@ -684,10 +1101,27 @@ function InventorySection() {
             <option value="instrument">Instrument</option>
             <option value="medication">Medication</option>
           </select>
-          <input name="minThreshold" type="number" placeholder="Min" className="w-1/2 p-2 text-sm border rounded" required />
+          <input
+            name="minThreshold"
+            type="number"
+            placeholder="Min"
+            className="w-1/2 p-2 text-sm border rounded"
+            required
+          />
         </div>
-        <input name="costPerUnit" type="number" placeholder="Cost" className="w-full p-2 text-sm border rounded" required />
-        <button disabled={isPending} className="w-full bg-teal-700 text-white py-2 rounded font-bold text-sm">Add Item</button>
+        <input
+          name="costPerUnit"
+          type="number"
+          placeholder="Cost"
+          className="w-full p-2 text-sm border rounded"
+          required
+        />
+        <button
+          disabled={isPending}
+          className="w-full bg-teal-700 text-white py-2 rounded font-bold text-sm"
+        >
+          Add Item
+        </button>
       </form>
     </div>
   );
@@ -697,26 +1131,72 @@ function DentistScheduleSection() {
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [schedule, setSchedule] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTreatment, setActiveTreatment] = useState<Appointment | null>(null);
+  const [activeTreatment, setActiveTreatment] = useState<Appointment | null>(
+    null
+  );
   const refresh = useCallback(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    getDentistScheduleAction(date).then((res) => { if (res.success && res.data) setSchedule(res.data as Appointment[] || []); setLoading(false); });
+    getDentistScheduleAction(date).then((res) => {
+      if (res.success && res.data)
+        setSchedule((res.data as Appointment[]) || []);
+      setLoading(false);
+    });
   }, [date]);
-  useEffect(() => { refresh(); }, [date, refresh]);
+  useEffect(() => {
+    refresh();
+  }, [date, refresh]);
   return (
     <div className={`${styles.cardPink} space-y-4`}>
       <div className="flex justify-between items-center">
-        <h3 className={`${styles.cardTitle} text-pink-900`}>My Assigned Patients</h3>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="text-sm p-1 border rounded" />
+        <h3 className={`${styles.cardTitle} text-pink-900`}>
+          My Assigned Patients
+        </h3>
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="text-sm p-1 border rounded"
+        />
       </div>
-      {loading ? <p>...</p> : schedule.length === 0 ? <p className="text-xs italic text-gray-500 text-center py-4">No patients today.</p> : schedule.map(app => (
-        <div key={app.id} className="p-3 bg-white rounded border flex justify-between items-center text-sm shadow-sm">
-          <div><p><strong>{app.time}</strong> - {app.serviceType}</p><p className="text-[10px] uppercase font-bold text-gray-400">{app.status}</p></div>
-          {app.status !== 'completed' && <button onClick={() => setActiveTreatment(app)} className="bg-pink-600 text-white px-3 py-1 rounded font-bold text-xs hover:bg-pink-700 transition">Treat</button>}
-        </div>
-      ))}
-      {activeTreatment && <TreatmentModal appointment={activeTreatment} onClose={() => setActiveTreatment(null)} onComplete={refresh} />}
+      {loading ? (
+        <p>...</p>
+      ) : schedule.length === 0 ? (
+        <p className="text-xs italic text-gray-500 text-center py-4">
+          No patients today.
+        </p>
+      ) : (
+        schedule.map((app) => (
+          <div
+            key={app.id}
+            className="p-3 bg-white rounded border flex justify-between items-center text-sm shadow-sm"
+          >
+            <div>
+              <p>
+                <strong>{app.time}</strong> - {app.serviceType}
+              </p>
+              <p className="text-[10px] uppercase font-bold text-gray-400">
+                {app.status}
+              </p>
+            </div>
+            {app.status !== "completed" && (
+              <button
+                onClick={() => setActiveTreatment(app)}
+                className="bg-pink-600 text-white px-3 py-1 rounded font-bold text-xs hover:bg-pink-700 transition"
+              >
+                Treat
+              </button>
+            )}
+          </div>
+        ))
+      )}
+      {activeTreatment && (
+        <TreatmentModal
+          appointment={activeTreatment}
+          onClose={() => setActiveTreatment(null)}
+          onComplete={refresh}
+        />
+      )}
     </div>
   );
 }
@@ -724,22 +1204,58 @@ function DentistScheduleSection() {
 function CreateEmployeeForm() {
   const { user } = useAuth();
   const [token, setToken] = useState("");
-  const [state, formAction, isPending] = useActionState(createEmployeeAction, { success: false });
-  useEffect(() => { if (user) user.getIdToken().then(setToken); }, [user]);
+  const [state, formAction, isPending] = useActionState(createEmployeeAction, {
+    success: false,
+  });
+  useEffect(() => {
+    if (user) user.getIdToken().then(setToken);
+  }, [user]);
   return (
     <div className={`${styles.cardIndigo} space-y-3`}>
       <h3 className={`${styles.cardTitle} text-indigo-900`}>Staff HR</h3>
       <form action={formAction} className="space-y-2">
         <input type="hidden" name="idToken" value={token} />
-        <input name="displayName" placeholder="Name" required className="w-full rounded border p-2 text-sm" />
-        <input name="email" type="email" placeholder="Email" required className="w-full rounded border p-2 text-sm" />
-        <input name="password" type="password" placeholder="Pass" required className="w-full rounded border p-2 text-sm" />
+        <input
+          name="displayName"
+          placeholder="Name"
+          required
+          className="w-full rounded border p-2 text-sm"
+        />
+        <input
+          name="email"
+          type="email"
+          placeholder="Email"
+          required
+          className="w-full rounded border p-2 text-sm"
+        />
+        <input
+          name="password"
+          type="password"
+          placeholder="Pass"
+          required
+          className="w-full rounded border p-2 text-sm"
+        />
         <select name="role" className="w-full rounded border p-2 text-sm">
-          <option value="dentist">Dentist</option><option value="front-desk">Front Desk</option>
+          <option value="dentist">Dentist</option>
+          <option value="front-desk">Front Desk</option>
         </select>
-        <button type="submit" disabled={isPending} className="w-full rounded bg-indigo-700 py-2 text-sm font-bold text-white hover:bg-indigo-800">Create Staff</button>
-        {state.success && <p className="text-green-600 text-xs text-center font-bold">Account Created!</p>}
-        {state.error && <p className="text-red-600 text-xs text-center font-bold">{state.error}</p>}
+        <button
+          type="submit"
+          disabled={isPending}
+          className="w-full rounded bg-indigo-700 py-2 text-sm font-bold text-white hover:bg-indigo-800"
+        >
+          Create Staff
+        </button>
+        {state.success && (
+          <p className="text-green-600 text-xs text-center font-bold">
+            Account Created!
+          </p>
+        )}
+        {state.error && (
+          <p className="text-red-600 text-xs text-center font-bold">
+            {state.error}
+          </p>
+        )}
       </form>
     </div>
   );
@@ -747,19 +1263,84 @@ function CreateEmployeeForm() {
 
 // --- MAIN PAGE ---
 
-export default function BackendTestPage() {
-  const { user, role, loading, logout } = useAuth();
-  if (loading) return <div className="p-20 text-center text-gray-500 font-bold animate-pulse">Initializing Lab Environment...</div>;
-  if (!user) return (
-    <div className="flex flex-col items-center py-40 gap-6">
-      <h2 className="text-3xl font-black italic tracking-tighter text-gray-900 uppercase">Backend Test Lab</h2>
-      <p className="text-gray-500 -mt-4 font-medium">Please sign in to access technical tools.</p>
-      <div className="flex gap-4">
-        <Link href="/backend-test/auth/signin" className="px-10 py-3 bg-white border border-gray-200 shadow-sm rounded-xl font-bold hover:bg-gray-50 transition">Sign In</Link>
-        <Link href="/backend-test/auth/signup" className="px-10 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition">Client Sign Up</Link>
-      </div>
+function PatientDirectorySection() {
+  const [patients, setPatients] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getPatientListAction().then((res) => {
+      if (res.success && res.data) setPatients(res.data);
+      setLoading(false);
+    });
+  }, []);
+
+  return (
+    <div className={`${styles.cardGray} space-y-4`}>
+      <h3 className={styles.cardTitle}>Patient Directory (Staff Only)</h3>
+      {loading ? (
+        <p className="text-xs">Loading directory...</p>
+      ) : patients.length === 0 ? (
+        <p className="text-xs italic text-gray-500">No patients found.</p>
+      ) : (
+        <div className="max-h-60 overflow-y-auto border rounded bg-white">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="p-2">Name</th>
+                <th className="p-2">Email</th>
+              </tr>
+            </thead>
+            <tbody>
+              {patients.map((p) => (
+                <tr
+                  key={p.uid}
+                  className="border-b last:border-0 hover:bg-gray-50"
+                >
+                  <td className="p-2 font-bold">{p.displayName || "N/A"}</td>
+                  <td className="p-2 text-gray-600">{p.email}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
+}
+
+export default function BackendTestPage() {
+  const { user, role, loading, logout } = useAuth();
+  if (loading)
+    return (
+      <div className="p-20 text-center text-gray-500 font-bold animate-pulse">
+        Initializing Lab Environment...
+      </div>
+    );
+  if (!user)
+    return (
+      <div className="flex flex-col items-center py-40 gap-6">
+        <h2 className="text-3xl font-black italic tracking-tighter text-gray-900 uppercase">
+          Backend Test Lab
+        </h2>
+        <p className="text-gray-500 -mt-4 font-medium">
+          Please sign in to access technical tools.
+        </p>
+        <div className="flex gap-4">
+          <Link
+            href="/backend-test/auth/signin"
+            className="px-10 py-3 bg-white border border-gray-200 shadow-sm rounded-xl font-bold hover:bg-gray-50 transition"
+          >
+            Sign In
+          </Link>
+          <Link
+            href="/backend-test/auth/signup"
+            className="px-10 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition"
+          >
+            Client Sign Up
+          </Link>
+        </div>
+      </div>
+    );
 
   const isStaff = role && role !== "client";
 
@@ -767,13 +1348,27 @@ export default function BackendTestPage() {
     <div className={styles.container}>
       <div className={styles.header}>
         <div className="flex items-center gap-4">
-          <div className="h-12 w-12 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 font-black">DC</div>
+          <div className="h-12 w-12 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600 font-black">
+            DC
+          </div>
           <div>
-            <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">Active Session</p>
-            <p className="font-extrabold text-gray-900">{user.email} <span className="text-blue-600 ml-1">[{role?.toUpperCase()}]</span></p>
+            <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">
+              Active Session
+            </p>
+            <p className="font-extrabold text-gray-900">
+              {user.email}{" "}
+              <span className="text-blue-600 ml-1">
+                [{role?.toUpperCase()}]
+              </span>
+            </p>
           </div>
         </div>
-        <button onClick={logout} className="px-4 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs hover:bg-red-100 transition uppercase tracking-wider">Sign Out</button>
+        <button
+          onClick={logout}
+          className="px-4 py-2 bg-red-50 text-red-600 rounded-lg font-black text-xs hover:bg-red-100 transition uppercase tracking-wider"
+        >
+          Sign Out
+        </button>
       </div>
 
       <div className={styles.grid}>
@@ -786,14 +1381,15 @@ export default function BackendTestPage() {
         {/* Clinical / Staff Sections */}
         <div className={styles.column}>
           <PatientSection />
+          {isStaff && <PatientDirectorySection />}
           {isStaff && <InventorySection />}
         </div>
 
         {/* Dashboard Sections */}
         <div className={styles.column}>
           {isStaff && <ClinicScheduleSection />}
-          {role === 'dentist' && <DentistScheduleSection />}
-          {role === 'admin' && (
+          {role === "dentist" && <DentistScheduleSection />}
+          {role === "admin" && (
             <div className={styles.column}>
               <CreateEmployeeForm />
               <ProceduresSection />
