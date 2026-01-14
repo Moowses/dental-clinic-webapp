@@ -34,18 +34,20 @@ export async function getInventory(onlyActive: boolean = true) {
       data: snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryItem)) 
     };
   } catch (error) {
-    console.error("Error fetching inventory:", error);
+    console.error("Error fetching inventory (Check Indexes!):", error);
     return { success: false, error: "Failed to load inventory" };
   }
 }
 
 export async function addInventoryItem(data: z.infer<typeof inventorySchema>) {
   try {
+    console.log("Adding Inventory Item:", data);
     const validData = inventorySchema.parse(data);
     const docRef = await addDoc(collection(db, COLLECTION_NAME), {
       ...validData,
       updatedAt: serverTimestamp(),
     });
+    console.log("Inventory Item Added with ID:", docRef.id);
     return { success: true, id: docRef.id };
   } catch (error) {
     console.error("Error adding inventory item:", error);

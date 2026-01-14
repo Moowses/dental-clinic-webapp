@@ -1,6 +1,7 @@
 import { actionWrapper, ActionState } from "@/lib/utils";
 import {
   bookingSchema,
+  paymentSchema,
   validateAppointmentDate,
   validateAppointmentTime,
 } from "@/lib/validations/appointment";
@@ -11,14 +12,15 @@ import {
   getAllAppointments, 
   updateAppointmentStatus, 
   assignDentist, 
-  getDentistAppointments 
+  getDentistAppointments,
+  recordPayment
 } from "@/lib/services/appointment-service";
 import { updatePatientRecord, getPatientRecord } from "@/lib/services/patient-service";
 import { updateUserProfile } from "@/lib/services/auth-service";
 import { getUserProfile } from "@/lib/services/user-service";
 import { patientRecordSchema } from "@/lib/validations/auth";
 import { z } from "zod";
-import { AppointmentStatus, Appointment } from "@/lib/types/appointment";
+import { AppointmentStatus, Appointment, PaymentMethod } from "@/lib/types/appointment";
 
 export type BookingState = ActionState;
 
@@ -33,6 +35,7 @@ export interface AppointmentWithPatient extends Appointment {
   isProfileComplete?: boolean;
 }
 
+// Client Action: Book Appointment
 export async function bookAppointmentAction(
   prevState: BookingState,
   data: FormData
@@ -48,14 +51,21 @@ export async function bookAppointmentAction(
   return actionWrapper(
     bookingSchema,
     async (parsedData) => {
+      // 1. Validate Business Rules (Date/Time)
       const dateError = validateAppointmentDate(parsedData.date);
       if (dateError) throw new Error(dateError);
 
       const timeError = validateAppointmentTime(parsedData.time);
       if (timeError) throw new Error(timeError);
 
-      if (parsedData.displayName && parsedData.displayName !== auth.currentUser?.displayName) {
-        await updateUserProfile(auth.currentUser!, { displayName: parsedData.displayName });
+      // 2. Conditional Profile Update
+      if (
+        parsedData.displayName &&
+        parsedData.displayName !== auth.currentUser?.displayName
+      ) {
+        await updateUserProfile(auth.currentUser!, {
+          displayName: parsedData.displayName,
+        });
       }
 
       if (parsedData.phoneNumber) {
@@ -65,6 +75,7 @@ export async function bookAppointmentAction(
         await updatePatientRecord(uid, patientData);
       }
 
+      // 3. Create the Appointment
       const result = await createAppointment(uid, parsedData);
       if (!result.success) throw new Error(result.error);
 
@@ -74,28 +85,38 @@ export async function bookAppointmentAction(
   );
 }
 
+// TODO: Normalize this action to return { success, data, error } in the future
+// Client Action: Check Availability
 export async function getAvailabilityAction(
   date: string
 ): Promise<CalendarAvailability> {
   const takenRes = await getTakenSlots(date);
   const offDaysRes = await getClinicOffDays(date, date);
-  const isHoliday = !!(offDaysRes.success && offDaysRes.data && offDaysRes.data.length > 0);
+  const isHoliday = !!(
+    offDaysRes.success &&
+    offDaysRes.data &&
+    offDaysRes.data.length > 0
+  );
 
   return {
     takenSlots: takenRes.data || [],
     isHoliday,
-    holidayReason: isHoliday && offDaysRes.data ? offDaysRes.data[0].reason : null,
+    holidayReason:
+      isHoliday && offDaysRes.data ? offDaysRes.data[0].reason : null,
   };
 }
 
+// Staff Action: Fetch Clinic Schedule
 export async function getClinicScheduleAction(date?: string): Promise<{ success: boolean; data?: AppointmentWithPatient[]; error?: string }> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
   const profile = await getUserProfile(auth.currentUser.uid);
-  if (!profile.success || !profile.data) return { success: false, error: "User profile not found" };
-  
-  if (profile.data.role === 'client') {
+  if (!profile.success || !profile.data)
+    return { success: false, error: "User profile not found" };
+
+  const role = profile.data.role;
+  if (role === "client") {
     return { success: false, error: "Unauthorized: Staff access required" };
   }
 
@@ -120,6 +141,7 @@ export async function getClinicScheduleAction(date?: string): Promise<{ success:
   return { success: true, data: enrichedAppointments };
 }
 
+// Staff Action: Assign Dentist
 export async function assignDentistAction(appointmentId: string, dentistId: string) {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
@@ -132,6 +154,7 @@ export async function assignDentistAction(appointmentId: string, dentistId: stri
   return await assignDentist(appointmentId, dentistId);
 }
 
+// Dentist Action: Get My Schedule
 export async function getDentistScheduleAction(date?: string): Promise<{ success: boolean; data?: Appointment[]; error?: string }> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
@@ -149,6 +172,7 @@ export async function getDentistScheduleAction(date?: string): Promise<{ success
   return { success: false, error: "Use Clinic Schedule for Admin view" };
 }
 
+// Staff Action: Update Status
 export async function updateAppointmentStatusAction(appointmentId: string, status: AppointmentStatus) {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
@@ -159,4 +183,21 @@ export async function updateAppointmentStatusAction(appointmentId: string, statu
   }
 
   return await updateAppointmentStatus(appointmentId, status);
+}
+
+// Staff Action: Record Payment
+export async function recordPaymentAction(appointmentId: string, method: string) {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+
+  const profile = await getUserProfile(auth.currentUser.uid);
+  if (!profile.success || !profile.data || profile.data.role === 'client') {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  // Validate method
+  const parsed = paymentSchema.safeParse({ method });
+  if (!parsed.success) return { success: false, error: "Invalid payment method" };
+
+  return await recordPayment(appointmentId, parsed.data.method as PaymentMethod);
 }

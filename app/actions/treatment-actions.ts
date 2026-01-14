@@ -28,11 +28,16 @@ export async function getTreatmentToolsAction(): Promise<{
     getInventory(true)
   ]);
 
+  // Filter Inventory to only show consumables (exclude instruments)
+  const consumableInventory = (inventoryRes.data || []).filter(
+    item => item.category !== "instrument"
+  );
+
   return {
     success: true,
     data: {
       procedures: proceduresRes.data || [],
-      inventory: inventoryRes.data || []
+      inventory: consumableInventory
     }
   };
 }

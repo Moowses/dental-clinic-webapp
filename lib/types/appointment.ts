@@ -10,6 +10,9 @@ export interface TreatmentRecord {
   completedAt: Timestamp;
 }
 
+export type PaymentStatus = "unpaid" | "paid" | "refunded";
+export type PaymentMethod = "cash" | "card" | "insurance" | "other";
+
 export interface Appointment {
   id: string; // Firestore Document ID
   patientId: string; // User UID
@@ -20,5 +23,11 @@ export interface Appointment {
   status: AppointmentStatus;
   notes?: string;
   treatment?: TreatmentRecord; // Added for clinical records
+  
+  // Billing Fields
+  paymentStatus: PaymentStatus;
+  paymentMethod?: PaymentMethod;
+  paymentDate?: Timestamp;
+  
   createdAt: Timestamp;
 }

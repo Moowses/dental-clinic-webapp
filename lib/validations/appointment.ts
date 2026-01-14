@@ -7,9 +7,13 @@ export const bookingSchema = z.object({
   notes: z.string().optional(),
   
   // Conditional Profile Update Fields
-  // These might be empty if the user already has them set
   displayName: z.string().optional(),
   phoneNumber: z.string().optional(), 
+});
+
+export const paymentSchema = z.object({
+  method: z.enum(["cash", "card", "insurance", "other"]),
+  notes: z.string().optional(),
 });
 
 // Helper to validate business rules (can be used in the Action)

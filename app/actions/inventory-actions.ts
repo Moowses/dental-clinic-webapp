@@ -5,12 +5,17 @@ import { getUserProfile } from "@/lib/services/user-service";
 import { InventoryItem } from "@/lib/types/inventory";
 
 export async function addInventoryItemAction(prevState: ActionState, data: FormData): Promise<ActionState> {
+  console.log("Action: Adding Inventory Item...");
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
   const profile = await getUserProfile(auth.currentUser.uid);
-  if (!profile.success || profile.data?.role !== "admin") {
-    return { success: false, error: "Unauthorized: Admin access required" };
+  console.log("User Role:", profile.data?.role);
+  
+  // Allow any Staff member to add items
+  if (!profile.success || profile.data?.role === "client") {
+    console.error("Action Failed: Unauthorized");
+    return { success: false, error: "Unauthorized: Staff access required" };
   }
 
   const rawData = Object.fromEntries(data);
@@ -23,7 +28,10 @@ export async function addInventoryItemAction(prevState: ActionState, data: FormD
   };
 
   const parsed = inventorySchema.safeParse(formattedData);
-  if (!parsed.success) return { success: false, error: parsed.error.issues[0].message };
+  if (!parsed.success) {
+    console.error("Action Failed: Validation Error", parsed.error);
+    return { success: false, error: parsed.error.issues[0].message };
+  }
 
   return await addInventoryItem(parsed.data);
 }

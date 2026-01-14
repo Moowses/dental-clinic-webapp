@@ -11,13 +11,28 @@ import {
   updateDoc,
   Timestamp
 } from "firebase/firestore";
-import { Appointment, AppointmentStatus, TreatmentRecord } from "../types/appointment";
+import { Appointment, AppointmentStatus, TreatmentRecord, PaymentMethod } from "../types/appointment";
 import { ClinicOffDay } from "../types/calendar";
 import { bookingSchema } from "../validations/appointment";
 import { z } from "zod";
 
 const APPOINTMENTS_COLLECTION = "appointments";
 const OFF_DAYS_COLLECTION = "clinic_off_days";
+
+export async function recordPayment(appointmentId: string, method: PaymentMethod) {
+  try {
+    const docRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
+    await updateDoc(docRef, {
+      paymentStatus: "paid",
+      paymentMethod: method,
+      paymentDate: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error("Error recording payment:", error);
+    return { success: false, error: "Failed to record payment" };
+  }
+}
 
 export async function createAppointment(uid: string, data: z.infer<typeof bookingSchema>) {
   try {
@@ -28,6 +43,7 @@ export async function createAppointment(uid: string, data: z.infer<typeof bookin
       time: data.time,
       notes: data.notes || "",
       status: "pending",
+      paymentStatus: "unpaid", // Default
       createdAt: serverTimestamp(),
     });
 
