@@ -4,7 +4,8 @@ import {
   addDoc, 
   query, 
   where, 
-  getDocs, 
+  getDocs,
+  getDoc, 
   serverTimestamp, 
   orderBy,
   doc,
@@ -36,7 +37,7 @@ export async function recordPayment(appointmentId: string, method: PaymentMethod
 
 export async function createAppointment(uid: string, data: z.infer<typeof bookingSchema>) {
   try {
-    await addDoc(collection(db, APPOINTMENTS_COLLECTION), {
+    const docRef = await addDoc(collection(db, APPOINTMENTS_COLLECTION), {
       patientId: uid,
       serviceType: data.serviceType,
       date: data.date,
@@ -47,10 +48,29 @@ export async function createAppointment(uid: string, data: z.infer<typeof bookin
       createdAt: serverTimestamp(),
     });
 
-    return { success: true };
+    return { success: true, id: docRef.id };
   } catch (error) {
     console.error("Error creating appointment:", error);
     return { success: false, error: "Failed to book appointment" };
+  }
+}
+
+export async function getAppointmentById(appointmentId: string) {
+  try {
+    const docRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
+    const snap = await getDoc(docRef);
+    
+    if (!snap.exists()) {
+      return { success: false, error: "Appointment not found" };
+    }
+
+    return { 
+      success: true, 
+      data: { id: snap.id, ...snap.data() } as Appointment 
+    };
+  } catch (error) {
+    console.error("Error fetching appointment:", error);
+    return { success: false, error: "Failed to fetch appointment" };
   }
 }
 

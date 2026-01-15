@@ -1,0 +1,146 @@
+import React from 'react';
+import {
+  Body,
+  Button,
+  Container,
+  Head,
+  Heading,
+  Hr,
+  Html,
+  Preview,
+  Section,
+  Text,
+} from '@react-email/components';
+
+interface AppointmentConfirmationProps {
+  patientName: string;
+  date: string;
+  time: string;
+  serviceName: string;
+  appointmentId: string;
+  clinicName?: string;
+  confirmUrl: string;
+}
+
+export const AppointmentConfirmationEmail = ({
+  patientName,
+  date,
+  time,
+  serviceName,
+  appointmentId,
+  clinicName = "Dental Clinic",
+  confirmUrl,
+}: AppointmentConfirmationProps) => {
+  return (
+    <Html>
+      <Head />
+      <Preview>Confirm your appointment at {clinicName}</Preview>
+      <Body style={main}>
+        <Container style={container}>
+          <Heading style={h1}>Appointment Confirmation</Heading>
+          <Text style={text}>Hi {patientName},</Text>
+          <Text style={text}>
+            Your appointment for <strong>{serviceName}</strong> has been scheduled.
+          </Text>
+          
+          <Section style={detailsContainer}>
+            <Text style={detailRow}><strong>Date:</strong> {date}</Text>
+            <Text style={detailRow}><strong>Time:</strong> {time}</Text>
+            <Text style={detailRow}><strong>Reference ID:</strong> {appointmentId}</Text>
+          </Section>
+
+          <Text style={text}>
+            Please confirm your attendance by clicking the button below. This helps us ensure your slot is reserved.
+          </Text>
+
+          <Section style={buttonContainer}>
+            <Button style={button} href={confirmUrl}>
+              Confirm Appointment
+            </Button>
+          </Section>
+          
+          <Text style={text}>
+            We have attached a calendar invite to this email. Please add it to your calendar!
+          </Text>
+
+          <Hr style={hr} />
+          
+          <Text style={footer}>
+            {clinicName} - 123 Dental Street, City<br />
+            If you need to reschedule, please contact us immediately.
+          </Text>
+        </Container>
+      </Body>
+    </Html>
+  );
+};
+
+export default AppointmentConfirmationEmail;
+
+const main = {
+  backgroundColor: '#f6f9fc',
+  fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Ubuntu,sans-serif',
+};
+
+const container = {
+  backgroundColor: '#ffffff',
+  margin: '0 auto',
+  padding: '20px 0 48px',
+  marginBottom: '64px',
+};
+
+const h1 = {
+  color: '#333',
+  fontSize: '24px',
+  fontWeight: 'bold',
+  textAlign: 'center' as const,
+  margin: '30px 0',
+};
+
+const text = {
+  color: '#333',
+  fontSize: '16px',
+  lineHeight: '26px',
+  padding: '0 40px',
+};
+
+const detailsContainer = {
+  padding: '20px 40px',
+  backgroundColor: '#f9f9f9',
+  marginBottom: '20px',
+};
+
+const detailRow = {
+  margin: '10px 0',
+  color: '#555',
+  fontSize: '16px',
+};
+
+const buttonContainer = {
+  textAlign: 'center' as const,
+  margin: '30px 0',
+};
+
+const button = {
+  backgroundColor: '#007bff',
+  borderRadius: '5px',
+  color: '#fff',
+  fontSize: '16px',
+  fontWeight: 'bold',
+  textDecoration: 'none',
+  textAlign: 'center' as const,
+  display: 'block',
+  padding: '12px 20px',
+};
+
+const hr = {
+  borderColor: '#e6ebf1',
+  margin: '20px 0',
+};
+
+const footer = {
+  color: '#8898aa',
+  fontSize: '12px',
+  lineHeight: '16px',
+  textAlign: 'center' as const,
+};
