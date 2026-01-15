@@ -660,7 +660,7 @@ export default function ClinicSchedulePanel() {
                     <select
                       value={app.dentistId || ""}
                       onChange={(e) =>
-                        assignDentistAction(app.id, e.target.value).then(refreshSelected)
+                        assignDentistAction(app.id, e.target.value).then(refreshSelected) //assign dentest
                       }
                       className={inputBase}
                     >
