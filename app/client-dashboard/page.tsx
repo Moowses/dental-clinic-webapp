@@ -1,9 +1,8 @@
-// app/client-dashboard/page.tsx
 "use client";
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState, useActionState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { getUserAppointments } from "@/lib/services/appointment-service";
 import { getPatientRecord } from "@/lib/services/patient-service";
@@ -24,9 +23,7 @@ function StatusBadge({ status }: { status: string }) {
       : "bg-emerald-50 text-emerald-700 border-emerald-200";
 
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${cls}`}
-    >
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${cls}`}>
       {status}
     </span>
   );
@@ -44,9 +41,7 @@ function AppointmentsTable({
   if (loading) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-slate-800">
-          Loading appointment history...
-        </p>
+        <p className="text-sm font-semibold text-slate-800">Loading appointment history...</p>
         <div className="mt-4 space-y-3">
           <div className="h-12 rounded-xl bg-slate-100" />
           <div className="h-12 rounded-xl bg-slate-100" />
@@ -59,12 +54,8 @@ function AppointmentsTable({
   if (!appointments.length) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-extrabold text-slate-900">
-          My Appointment History
-        </h3>
-        <p className="mt-2 text-sm text-slate-600">
-          No appointments booked yet.
-        </p>
+        <h3 className="text-lg font-extrabold text-slate-900">My Appointment History</h3>
+        <p className="mt-2 text-sm text-slate-600">No appointments booked yet.</p>
 
         <button
           type="button"
@@ -82,12 +73,8 @@ function AppointmentsTable({
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
         <div>
-          <h3 className="text-lg font-extrabold text-slate-900">
-            My Appointment History
-          </h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Review your bookings and appointment status.
-          </p>
+          <h3 className="text-lg font-extrabold text-slate-900">My Appointment History</h3>
+          <p className="mt-1 text-xs text-slate-500">Review your bookings and appointment status.</p>
         </div>
 
         <button
@@ -165,21 +152,14 @@ function AccountSettingsForm({
   email: string;
   record: PatientRecord | null;
 }) {
-  const [state, formAction, isPending] = useActionState(
-    updatePatientRecordAction,
-    { success: false }
-  );
+  const [state, formAction, isPending] = useActionState(updatePatientRecordAction, { success: false });
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-extrabold text-slate-900">
-            Account Settings
-          </h3>
-          <p className="mt-2 text-sm text-slate-600">
-            Keep your contact details updated so the clinic can reach you.
-          </p>
+          <h3 className="text-lg font-extrabold text-slate-900">Account Settings</h3>
+          <p className="mt-2 text-sm text-slate-600">Keep your contact details updated so the clinic can reach you.</p>
         </div>
 
         {state.success && (
@@ -192,9 +172,7 @@ function AccountSettingsForm({
       <form action={formAction} className="mt-5 space-y-4">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="text-xs font-bold text-slate-600">
-              Full Name
-            </label>
+            <label className="text-xs font-bold text-slate-600">Full Name</label>
             <input
               name="displayName"
               defaultValue={userDisplayName}
@@ -216,9 +194,7 @@ function AccountSettingsForm({
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className="text-xs font-bold text-slate-600">
-              Phone Number
-            </label>
+            <label className="text-xs font-bold text-slate-600">Phone Number</label>
             <input
               name="phoneNumber"
               defaultValue={record?.phoneNumber || ""}
@@ -228,9 +204,7 @@ function AccountSettingsForm({
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-600">
-              Date of Birth
-            </label>
+            <label className="text-xs font-bold text-slate-600">Date of Birth</label>
             <input
               name="dateOfBirth"
               type="date"
@@ -253,9 +227,7 @@ function AccountSettingsForm({
           </div>
 
           <div>
-            <label className="text-xs font-bold text-slate-600">
-              Emergency Contact
-            </label>
+            <label className="text-xs font-bold text-slate-600">Emergency Contact</label>
             <input
               name="emergencyContact"
               defaultValue={record?.emergencyContact || ""}
@@ -284,9 +256,7 @@ function AccountSettingsForm({
           {isPending ? "Saving..." : "Save Changes"}
         </button>
 
-        {state.error && (
-          <p className="text-sm font-bold text-red-600">{state.error}</p>
-        )}
+        {state.error && <p className="text-sm font-bold text-red-600">{state.error}</p>}
       </form>
     </div>
   );
@@ -305,36 +275,53 @@ export default function ClientDashboardPage() {
   const [openBooking, setOpenBooking] = useState(false);
 
   const normalizedRole = (role ?? "").toString().trim().toLowerCase();
+  const patientName = useMemo(() => user?.displayName || user?.email?.split("@")[0] || "Patient", [user]);
 
-  const patientName = useMemo(
-    () => user?.displayName || user?.email?.split("@")[0] || "Patient",
-    [user]
-  );
+  // prevents loader loops + stale responses
+  const reqIdRef = useRef(0);
 
-  const refreshAppointments = () => {
-    if (!user) return;
+  const refreshAppointments = useCallback(async () => {
+    if (!user?.uid) return;
+
+    const myReq = ++reqIdRef.current;
     setHistoryLoading(true);
-    getUserAppointments(user.uid).then((res) => {
-      if (res?.success) setAppointments(res.data || []);
-      setHistoryLoading(false);
-    });
-  };
 
-  useEffect(() => {
-    if (!user) return;
-    refreshAppointments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    try {
+      const res = await getUserAppointments(user.uid);
+      if (reqIdRef.current !== myReq) return; // ignore stale
+
+      if (res?.success) setAppointments(res.data || []);
+    } catch {
+      // keep UI stable; no infinite loader
+    } finally {
+      if (reqIdRef.current === myReq) setHistoryLoading(false);
+    }
   }, [user?.uid]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
+    refreshAppointments();
+  }, [user?.uid, refreshAppointments]);
 
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    let cancelled = false;
     setRecordLoading(true);
-    getPatientRecord(user.uid).then((res) => {
-      if (res?.success) setRecord(res.data || null);
-      setRecordLoading(false);
-    });
-  }, [user]);
+
+    getPatientRecord(user.uid)
+      .then((res) => {
+        if (cancelled) return;
+        if (res?.success) setRecord(res.data || null);
+      })
+      .finally(() => {
+        if (!cancelled) setRecordLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
 
   if (loading) {
     return (
@@ -348,12 +335,8 @@ export default function ClientDashboardPage() {
     return (
       <div className="min-h-[70vh] flex items-center justify-center px-4">
         <div className="max-w-md w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center">
-          <h2 className="text-xl font-extrabold text-slate-900">
-            Please sign in
-          </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            You need an account to access your dashboard.
-          </p>
+          <h2 className="text-xl font-extrabold text-slate-900">Please sign in</h2>
+          <p className="mt-2 text-sm text-slate-600">You need an account to access your dashboard.</p>
           <Link
             href="/"
             className="mt-5 inline-flex w-full justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
@@ -370,12 +353,9 @@ export default function ClientDashboardPage() {
     return (
       <div className="min-h-[70vh] flex items-center justify-center px-4">
         <div className="max-w-md w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm text-center">
-          <h2 className="text-xl font-extrabold text-slate-900">
-            Access restricted
-          </h2>
+          <h2 className="text-xl font-extrabold text-slate-900">Access restricted</h2>
           <p className="mt-2 text-sm text-slate-600">
-            This dashboard is for patients only.
-            if you administer the clinic, please use the admin link.
+            This dashboard is for patients only. if you administer the clinic, please use the admin link.
           </p>
           <button
             onClick={logout}
@@ -393,22 +373,14 @@ export default function ClientDashboardPage() {
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl px-4 py-6">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_1fr]">
-          {/* Sidebar */}
           <aside className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
             <div className="border-b border-slate-100 p-5">
               <div className="flex items-center gap-3">
                 <div className="relative h-10 w-10">
-                  <Image
-                    src="/dclogo.png"
-                    alt="J4 Dental Clinic"
-                    fill
-                    className="object-contain"
-                  />
+                  <Image src="/dclogo.png" alt="J4 Dental Clinic" fill className="object-contain" />
                 </div>
                 <div className="leading-tight">
-                  <p className="text-sm font-extrabold text-slate-900">
-                    Patient Portal
-                  </p>
+                  <p className="text-sm font-extrabold text-slate-900">Patient Portal</p>
                   <p className="text-xs text-slate-500">J4 Dental Clinic</p>
                 </div>
               </div>
@@ -418,9 +390,7 @@ export default function ClientDashboardPage() {
               <button
                 onClick={() => setActive("dashboard")}
                 className={`w-full rounded-xl px-4 py-3 text-left text-sm font-bold transition ${
-                  active === "dashboard"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-700 hover:bg-slate-50"
+                  active === "dashboard" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
                 }`}
               >
                 Dashboard
@@ -429,9 +399,7 @@ export default function ClientDashboardPage() {
               <button
                 onClick={() => setActive("settings")}
                 className={`mt-2 w-full rounded-xl px-4 py-3 text-left text-sm font-bold transition ${
-                  active === "settings"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-700 hover:bg-slate-50"
+                  active === "settings" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
                 }`}
               >
                 Account Settings
@@ -439,44 +407,29 @@ export default function ClientDashboardPage() {
 
               <div className="my-3 border-t border-slate-100" />
 
-              <button
-                onClick={logout}
-                className="w-full rounded-xl px-4 py-3 text-left text-sm font-bold text-red-600 hover:bg-red-50"
-              >
+              <button onClick={logout} className="w-full rounded-xl px-4 py-3 text-left text-sm font-bold text-red-600 hover:bg-red-50">
                 Logout
               </button>
             </div>
           </aside>
 
-          {/* Main */}
           <section className="space-y-6">
-            {/* Top card */}
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
               <div
                 className="p-6"
                 style={{
-                  background:
-                    "linear-gradient(90deg, rgba(14,75,90,1) 0%, rgba(27,166,200,1) 100%)",
+                  background: "linear-gradient(90deg, rgba(14,75,90,1) 0%, rgba(27,166,200,1) 100%)",
                 }}
               >
                 <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-4">
                     <div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-white/15 ring-1 ring-white/20">
-                      <Image
-                        src="/clinic6.jpg"
-                        alt={patientName}
-                        fill
-                        className="object-cover"
-                      />
+                      <Image src="/clinic6.jpg" alt={patientName} fill className="object-cover" />
                     </div>
 
                     <div className="text-white">
-                      <p className="text-xs font-bold text-white/85">
-                        Patient Dashboard
-                      </p>
-                      <h1 className="mt-1 text-xl font-extrabold">
-                        {patientName}
-                      </h1>
+                      <p className="text-xs font-bold text-white/85">Patient Dashboard</p>
+                      <h1 className="mt-1 text-xl font-extrabold">{patientName}</h1>
                       <p className="mt-1 text-xs text-white/80">{user.email}</p>
                     </div>
                   </div>
@@ -496,51 +449,31 @@ export default function ClientDashboardPage() {
               <div className="p-6">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                    <p className="text-xs font-bold text-slate-500">
-                      Upcoming (Pending)
-                    </p>
+                    <p className="text-xs font-bold text-slate-500">Upcoming (Pending)</p>
                     <p className="mt-2 text-2xl font-extrabold text-slate-900">
-                      {
-                        appointments.filter(
-                          (a) => String(a.status).toLowerCase() === "pending"
-                        ).length
-                      }
+                      {appointments.filter((a) => String(a.status).toLowerCase() === "pending").length}
                     </p>
                   </div>
 
                   <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                    <p className="text-xs font-bold text-slate-500">
-                      Total Bookings
-                    </p>
-                    <p className="mt-2 text-2xl font-extrabold text-slate-900">
-                      {appointments.length}
-                    </p>
+                    <p className="text-xs font-bold text-slate-500">Total Bookings</p>
+                    <p className="mt-2 text-2xl font-extrabold text-slate-900">{appointments.length}</p>
                   </div>
 
                   <div className="rounded-2xl border border-slate-200 bg-white p-5">
                     <p className="text-xs font-bold text-slate-500">Role</p>
-                    <p className="mt-2 text-sm font-extrabold text-slate-900">
-                      {normalizedRole || "client"}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Active session
-                    </p>
+                    <p className="mt-2 text-sm font-extrabold text-slate-900">{normalizedRole || "client"}</p>
+                    <p className="mt-1 text-xs text-slate-500">Active session</p>
                   </div>
                 </div>
               </div>
             </div>
 
             {active === "dashboard" ? (
-              <AppointmentsTable
-                appointments={appointments}
-                loading={historyLoading}
-                onAddAppointment={() => setOpenBooking(true)}
-              />
+              <AppointmentsTable appointments={appointments} loading={historyLoading} onAddAppointment={() => setOpenBooking(true)} />
             ) : recordLoading ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-sm font-semibold text-slate-800">
-                  Loading account settings...
-                </p>
+                <p className="text-sm font-semibold text-slate-800">Loading account settings...</p>
                 <div className="mt-4 space-y-3">
                   <div className="h-12 rounded-xl bg-slate-100" />
                   <div className="h-12 rounded-xl bg-slate-100" />
@@ -548,22 +481,18 @@ export default function ClientDashboardPage() {
                 </div>
               </div>
             ) : (
-              <AccountSettingsForm
-                userDisplayName={patientName}
-                email={user.email || ""}
-                record={record}
-              />
+              <AccountSettingsForm userDisplayName={patientName} email={user.email || ""} record={record} />
             )}
           </section>
         </div>
       </div>
 
-      {/* */}
       <BookAppointmentModal
         open={openBooking}
         onClose={() => setOpenBooking(false)}
+        // stable + guarded: prevents modal-close loops
         onBooked={refreshAppointments}
-      /> 
+      />
     </main>
   );
 }
