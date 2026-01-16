@@ -1,15 +1,55 @@
 import { ActionState } from "@/lib/utils";
-import { getAllPatients } from "@/lib/services/user-service";
+import { getAllPatients, updateUserDocument } from "@/lib/services/user-service";
 import { getUserProfile } from "@/lib/services/user-service";
+import { updateUserProfile } from "@/lib/services/auth-service";
+import { updatePatientRegistration } from "@/lib/services/patient-service";
+import { PatientRegistrationData } from "@/lib/validations/patient-registration";
+
+// Staff/Client Action: Submit full registration
+export async function submitPatientRegistrationAction(uid: string, data: PatientRegistrationData): Promise<{ success: boolean; error?: string }> {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+
+  // Permission check: Either the patient themselves or staff can update
+  const currentUserProfile = await getUserProfile(auth.currentUser.uid);
+  const isStaff = currentUserProfile.data?.role && currentUserProfile.data.role !== 'client';
+  
+  if (auth.currentUser.uid !== uid && !isStaff) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  // 1. Sync Display Name (First + Last)
+  const personalInfo = data.personal_information;
+  if (personalInfo?.name) {
+    const newDisplayName = `${personalInfo.name.first_name} ${personalInfo.name.last_name}`.trim();
+    
+    if (newDisplayName) {
+      // Update Firestore Profile
+      await updateUserDocument(uid, { displayName: newDisplayName });
+      
+      // Update Auth Profile (Only if editing self)
+      if (auth.currentUser.uid === uid) {
+        await updateUserProfile(auth.currentUser, { displayName: newDisplayName });
+      }
+    }
+  }
+
+  // 2. Save Full Registration
+  return await updatePatientRegistration(uid, data);
+}
 
 // Staff Action: Fetch all patients for the directory
-export async function getPatientListAction(): Promise<{ success: boolean; data?: any[]; error?: string }> {
+export async function getPatientListAction(): Promise<{
+  success: boolean;
+  data?: any[];
+  error?: string;
+}> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
   // Verify Role
   const profile = await getUserProfile(auth.currentUser.uid);
-  if (!profile.success || !profile.data || profile.data.role === 'client') {
+  if (!profile.success || !profile.data || profile.data.role === "client") {
     return { success: false, error: "Unauthorized: Staff access required" };
   }
 
