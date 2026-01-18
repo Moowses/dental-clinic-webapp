@@ -3,6 +3,7 @@ import {
   signUp,
   performPasswordReset,
   updateUserProfile,
+  sendVerificationEmail,
 } from "@/lib/services/auth-service";
 import { updatePatientRecord } from "@/lib/services/patient-service";
 import { updateDentistProfile } from "@/lib/services/dentist-service";
@@ -30,6 +31,13 @@ export async function signUpAction(
   data: FormData
 ): Promise<AuthState> {
   return actionWrapper(signUpSchema, signUp, data);
+}
+
+export async function resendVerificationEmailAction(): Promise<ActionState> {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+  
+  return await sendVerificationEmail(auth.currentUser);
 }
 
 export async function resetPasswordAction(

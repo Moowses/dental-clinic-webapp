@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useActionState, useEffect, useState, useCallback } from "react";
 import { createEmployeeAction } from "@/app/actions/admin-actions";
 import { getDentistListAction } from "@/app/actions/dentist-actions";
-import { updatePatientRecordAction } from "@/app/actions/auth-actions";
+import { updatePatientRecordAction, resendVerificationEmailAction } from "@/app/actions/auth-actions";
 import {
   bookAppointmentAction,
   getAvailabilityAction,
@@ -637,6 +637,63 @@ function PatientEditModal({
         </h3>
         <PatientEditForm patientId={patientId} onClose={onClose} />
       </div>
+    </div>
+  );
+}
+
+// --- VERIFICATION TEST SECTION ---
+
+function VerificationTestSection() {
+  const { user } = useAuth();
+  const [status, setStatus] = useState<{ loading: boolean; message: string | null }>({
+    loading: false,
+    message: null,
+  });
+
+  const handleResend = async () => {
+    setStatus({ loading: true, message: "Sending..." });
+    const res = await resendVerificationEmailAction();
+    if (res.success) {
+      setStatus({ loading: false, message: "✅ Verification email sent! Check your inbox." });
+    } else {
+      setStatus({ loading: false, message: "❌ Error: " + res.error });
+    }
+  };
+
+  if (!user) return null;
+
+  return (
+    <div className="mb-6 p-4 bg-amber-900 text-white rounded-xl shadow-lg border border-amber-500/30">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="font-bold text-amber-200 uppercase tracking-widest text-xs">
+          Email Verification Status
+        </h3>
+        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${user.emailVerified ? 'bg-green-500 text-white' : 'bg-red-500 text-white animate-pulse'}`}>
+          {user.emailVerified ? "Verified" : "Unverified"}
+        </span>
+      </div>
+      
+      {!user.emailVerified && (
+        <div className="space-y-3">
+          <p className="text-[10px] text-amber-100 opacity-80 leading-relaxed">
+            Your email is not verified. You can trigger a new verification link using the button below. 
+            Firebase will send a magic link to <strong>{user.email}</strong>.
+          </p>
+          <button 
+            onClick={handleResend}
+            disabled={status.loading}
+            className="w-full bg-amber-600 hover:bg-amber-700 disabled:bg-amber-800 text-white py-2 rounded font-bold text-xs transition"
+          >
+            {status.loading ? "Processing..." : "Resend Verification Email"}
+          </button>
+        </div>
+      )}
+
+      {status.message && (
+        <p className="mt-2 text-[10px] text-center font-mono font-bold italic">
+          {status.message}
+        </p>
+      )}
     </div>
   );
 }
@@ -1708,6 +1765,8 @@ export default function BackendTestPage() {
           Sign Out
         </button>
       </div>
+
+      <VerificationTestSection />
 
       <div className={styles.grid}>
         {/* User Sections */}
