@@ -26,6 +26,18 @@ import {
   getTreatmentToolsAction,
   completeTreatmentAction,
 } from "@/app/actions/treatment-actions";
+import { 
+  getBillingDetailsAction, 
+  createPaymentPlanAction,
+  getAllBillingAction 
+} from "@/app/actions/billing-actions";
+import { 
+  getAllServicesAction, 
+  createServiceAction, 
+  toggleServiceStatusAction 
+} from "@/app/actions/service-actions";
+import { BillingRecord } from "@/lib/types/billing";
+import { DentalService } from "@/lib/types/service";
 import {
   getPatientListAction,
   submitPatientRegistrationAction,
@@ -694,6 +706,315 @@ function VerificationTestSection() {
           {status.message}
         </p>
       )}
+    </div>
+  );
+}
+
+// --- BILLING TEST SECTION ---
+
+function BillingTestSection() {
+  const [appId, setAppId] = useState("");
+  const [bill, setBill] = useState<BillingRecord | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [payAmount, setPayAmount] = useState("");
+
+  const loadBill = async () => {
+    if (!appId) return;
+    setLoading(true);
+    const res = await getBillingDetailsAction(appId);
+    if (res.success && res.data) {
+      setBill(res.data);
+    } else {
+      alert("Bill not found: " + res.error);
+      setBill(null);
+    }
+    setLoading(false);
+  };
+
+  const handlePay = async (full: boolean) => {
+    if (!bill) return;
+    const amount = full ? bill.remainingBalance : parseFloat(payAmount);
+    if (!amount || amount <= 0) return alert("Invalid amount");
+
+    setLoading(true);
+    const res = await recordPaymentAction(bill.appointmentId, "cash", amount);
+    setLoading(false);
+    if (res.success) {
+      alert("Payment recorded!");
+      loadBill(); // Refresh
+    } else {
+      alert("Error: " + res.error);
+    }
+  };
+
+  const handlePlan = async (months: number) => {
+    if (!bill) return;
+    setLoading(true);
+    const res = await createPaymentPlanAction(bill.appointmentId, months);
+    setLoading(false);
+    if (res.success) {
+      alert("Plan created!");
+      loadBill();
+    } else {
+      alert("Error: " + res.error);
+    }
+  };
+
+  return (
+    <div className="mb-6 p-4 bg-emerald-900 text-white rounded-xl shadow-lg border border-emerald-500/30">
+      <h3 className="font-bold text-emerald-200 uppercase tracking-widest text-xs mb-3">
+        Billing & Payment Plans
+      </h3>
+
+      <div className="flex gap-2 mb-4">
+        <input 
+          value={appId} 
+          onChange={(e) => setAppId(e.target.value)}
+          placeholder="Appointment ID"
+          className="text-black text-xs p-2 rounded flex-1"
+        />
+        <button onClick={loadBill} className="bg-emerald-600 px-4 rounded font-bold text-xs">
+          Load
+        </button>
+      </div>
+
+      {bill && (
+        <div className="space-y-4">
+          {/* Summary Card */}
+          <div className="bg-emerald-800/50 p-3 rounded border border-emerald-700/50 flex justify-between items-center">
+            <div>
+              <p className="text-[10px] text-emerald-300 uppercase">Status</p>
+              <p className="font-black text-lg">{bill.status.toUpperCase()}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] text-emerald-300 uppercase">Balance / Total</p>
+              <p className="font-mono">
+                <span className="text-xl font-bold">${bill.remainingBalance}</span>
+                <span className="text-emerald-400 text-sm"> / ${bill.totalAmount}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Actions */}
+          {bill.remainingBalance > 0 && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white/10 p-3 rounded space-y-2">
+                <p className="text-xs font-bold text-emerald-200">Immediate Payment</p>
+                <button onClick={() => handlePay(true)} disabled={loading} className="w-full bg-emerald-500 hover:bg-emerald-400 py-1.5 rounded text-xs font-bold">
+                  Pay Full Balance
+                </button>
+                <div className="flex gap-1">
+                  <input 
+                    type="number" 
+                    placeholder="Amount" 
+                    value={payAmount}
+                    onChange={(e) => setPayAmount(e.target.value)}
+                    className="text-black text-xs p-1.5 rounded w-2/3" 
+                  />
+                  <button onClick={() => handlePay(false)} disabled={loading} className="bg-emerald-600 hover:bg-emerald-500 w-1/3 rounded text-xs font-bold">
+                    Pay
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-white/10 p-3 rounded space-y-2">
+                <p className="text-xs font-bold text-emerald-200">Installment Plan</p>
+                <div className="flex gap-2">
+                  <button onClick={() => handlePlan(2)} disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-500 py-1.5 rounded text-xs font-bold">
+                    2 Months
+                  </button>
+                  <button onClick={() => handlePlan(3)} disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-500 py-1.5 rounded text-xs font-bold">
+                    3 Months
+                  </button>
+                </div>
+                <p className="text-[9px] text-emerald-300 italic text-center">
+                  *Auto-calculates dates starting next month
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* History */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-emerald-200 uppercase border-b border-emerald-700 pb-1">
+              Transaction History
+            </p>
+            {bill.transactions.length === 0 ? (
+              <p className="text-[10px] text-emerald-400 italic">No payments yet.</p>
+            ) : (
+              bill.transactions.map((t) => (
+                <div key={t.id} className="flex justify-between text-xs bg-black/20 p-2 rounded">
+                  <span>{new Date((t.date as any).seconds * 1000).toLocaleDateString()}</span>
+                  <span className="font-mono text-emerald-300">+${t.amount} ({t.method})</span>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Plan Details */}
+          {bill.paymentPlan.type === "installments" && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-blue-200 uppercase border-b border-blue-700/50 pb-1">
+                Active Plan
+              </p>
+              {bill.paymentPlan.installments.map((i, idx) => (
+                <div key={idx} className="flex justify-between text-xs bg-blue-900/20 p-2 rounded items-center">
+                  <div>
+                    <span className="block font-bold text-blue-100">Due: {i.dueDate}</span>
+                    <span className={`text-[9px] uppercase px-1.5 rounded ${i.status === 'paid' ? 'bg-green-500' : 'bg-yellow-600'}`}>
+                      {i.status}
+                    </span>
+                  </div>
+                  <span className="font-mono text-blue-200">${i.amount}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- BILLING OVERVIEW SECTION ---
+
+function BillingOverviewSection({ onSelectBill }: { onSelectBill: (id: string) => void }) {
+  const [bills, setBills] = useState<BillingRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid'>('all');
+
+  const fetchBills = async () => {
+    setLoading(true);
+    const res = await getAllBillingAction(filter as any);
+    if (res.success) setBills(res.data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchBills();
+  }, [filter]);
+
+  return (
+    <div className={`${styles.cardGray} space-y-4`}>
+      <div className="flex justify-between items-center border-b pb-2">
+        <h3 className={styles.cardTitle}>Billing Overview (Staff)</h3>
+        <div className="flex gap-1">
+          {['all', 'unpaid', 'paid'].map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f as any)}
+              className={`px-2 py-1 text-[9px] font-bold rounded uppercase ${filter === f ? 'bg-black text-white' : 'bg-gray-100 text-gray-500'}`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-xs">Loading bills...</p>
+      ) : bills.length === 0 ? (
+        <p className="text-xs italic text-gray-500 text-center py-4">No records found matching filter.</p>
+      ) : (
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {bills.map((b) => (
+            <div key={b.id} className="p-2 border rounded bg-white flex justify-between items-center shadow-sm">
+              <div className="text-[10px]">
+                <p className="font-bold text-gray-800">Appt: {b.id}</p>
+                <p className="text-gray-500">Patient: {b.patientId.substring(0, 8)}...</p>
+              </div>
+              <div className="text-right flex items-center gap-3">
+                <div className="text-[10px]">
+                  <p className="font-mono font-bold">${b.remainingBalance} left</p>
+                  <p className="text-gray-400">Total: ${b.totalAmount}</p>
+                </div>
+                <button 
+                  onClick={() => onSelectBill(b.id)}
+                  className="bg-blue-50 text-blue-600 p-1.5 rounded hover:bg-blue-100 transition"
+                >
+                  ⚙️
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <button onClick={fetchBills} className="w-full text-[10px] text-gray-400 hover:text-gray-600 underline uppercase font-bold tracking-widest">
+        Refresh List
+      </button>
+    </div>
+  );
+}
+
+// --- SERVICE CATALOG SECTION ---
+
+function ServiceCatalogSection() {
+  const [services, setServices] = useState<DentalService[]>([]);
+  const [state, formAction, isPending] = useActionState(createServiceAction, { success: false });
+
+  const fetchServices = async () => {
+    const res = await getAllServicesAction();
+    if (res.success) setServices(res.data || []);
+  };
+
+  useEffect(() => {
+    fetchServices();
+  }, [state.success]);
+
+  return (
+    <div className={`${styles.cardOrange} space-y-4`}>
+      <h3 className={styles.cardTitle}>Service Catalog (Website)</h3>
+      
+      <div className="space-y-2 max-h-60 overflow-y-auto bg-white p-2 rounded border">
+        {services.length === 0 ? (
+          <p className="text-xs text-gray-500 italic text-center">No services found.</p>
+        ) : (
+          services.map((s) => (
+            <div key={s.id} className="flex justify-between items-center border-b pb-2 last:border-0">
+              <div>
+                <p className="font-bold text-xs text-gray-800">{s.name}</p>
+                <p className="text-[10px] text-gray-500 uppercase">{s.category} • {s.durationMinutes} min</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-bold text-sm text-orange-700">${s.price}</span>
+                <button
+                  onClick={async () => {
+                    await toggleServiceStatusAction(s.id, s.isActive);
+                    fetchServices();
+                  }}
+                  className={`text-[9px] px-2 py-1 rounded font-bold uppercase ${s.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
+                >
+                  {s.isActive ? "Active" : "Inactive"}
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <form action={formAction} className="space-y-2 border-t pt-2 mt-2">
+        <p className="text-xs font-bold text-gray-600 uppercase">Add New Service</p>
+        <input name="name" placeholder="Service Name" className="w-full p-2 border rounded text-sm" required />
+        <div className="flex gap-2">
+          <select name="category" className="w-1/2 p-2 border rounded text-sm">
+            <option value="preventative">Preventative</option>
+            <option value="restorative">Restorative</option>
+            <option value="cosmetic">Cosmetic</option>
+            <option value="surgery">Surgery</option>
+            <option value="orthodontics">Orthodontics</option>
+            <option value="emergency">Emergency</option>
+          </select>
+          <input name="durationMinutes" type="number" placeholder="Mins" className="w-1/2 p-2 border rounded text-sm" required />
+        </div>
+        <input name="price" type="number" placeholder="Price ($)" className="w-full p-2 border rounded text-sm" required />
+        <textarea name="description" placeholder="Description" className="w-full p-2 border rounded text-sm h-12" />
+        <input type="hidden" name="isActive" value="true" />
+        
+        <button disabled={isPending} className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2 rounded font-bold text-xs transition">
+          {isPending ? "Adding..." : "Add to Catalog"}
+        </button>
+        {state.error && <p className="text-red-600 text-[10px] text-center">{state.error}</p>}
+      </form>
     </div>
   );
 }
@@ -1768,6 +2089,8 @@ export default function BackendTestPage() {
 
       <VerificationTestSection />
 
+      <BillingTestSection />
+
       <div className={styles.grid}>
         {/* User Sections */}
         <div className={styles.column}>
@@ -1778,6 +2101,17 @@ export default function BackendTestPage() {
         {/* Clinical / Staff Sections */}
         <div className={styles.column}>
           <PatientSection />
+          {isStaff && <BillingOverviewSection onSelectBill={(id) => {
+             // This is a bit of a hack to talk between components in this simple lab page
+             // Normally we'd use a shared state or context.
+             const input = document.querySelector('input[placeholder="Appointment ID"]') as HTMLInputElement;
+             if (input) {
+                input.value = id;
+                // Force a change event or just call the load function if we had access.
+                // In this lab, we'll just alert the user to click "Load" manually after we paste it.
+                alert("ID pasted into Billing Manager. Click 'Load' to manage.");
+             }
+          }} />}
           {isStaff && <PatientDirectorySection />}
           {isStaff && <InventorySection />}
         </div>
@@ -1789,6 +2123,7 @@ export default function BackendTestPage() {
           {role === "admin" && (
             <div className={styles.column}>
               <CreateEmployeeForm />
+              <ServiceCatalogSection />
               <ProceduresSection />
             </div>
           )}

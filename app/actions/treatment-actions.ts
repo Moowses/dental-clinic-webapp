@@ -2,7 +2,8 @@ import { ActionState } from "@/lib/utils";
 import { getAllProcedures } from "@/lib/services/clinic-service";
 import { getInventory } from "@/lib/services/inventory-service";
 import { getUserProfile } from "@/lib/services/user-service";
-import { saveTreatmentRecord } from "@/lib/services/appointment-service";
+import { saveTreatmentRecord, getAppointmentById } from "@/lib/services/appointment-service";
+import { createBillingRecord } from "@/lib/services/billing-service";
 import { TreatmentRecord } from "@/lib/types/appointment";
 import { DentalProcedure } from "@/lib/types/clinic";
 import { InventoryItem } from "@/lib/types/inventory";
@@ -54,5 +55,20 @@ export async function completeTreatmentAction(
     return { success: false, error: "Unauthorized: Only dentists can log treatments" };
   }
 
-  return await saveTreatmentRecord(appointmentId, data);
+  // 1. Save clinical record
+  const result = await saveTreatmentRecord(appointmentId, data);
+  if (!result.success) return result;
+
+  // 2. Fetch appointment to get totalBill (calculated by saveTreatmentRecord) and patientId
+  const appResult = await getAppointmentById(appointmentId);
+  if (appResult.success && appResult.data && appResult.data.treatment) {
+    // 3. Create Billing Record
+    await createBillingRecord(
+      appointmentId, 
+      appResult.data.patientId, 
+      appResult.data.treatment.totalBill
+    );
+  }
+
+  return { success: true };
 }

@@ -13,8 +13,8 @@ import {
   updateAppointmentStatus,
   assignDentist,
   getDentistAppointments,
-  recordPayment,
 } from "@/lib/services/appointment-service";
+import { processPayment } from "@/lib/services/billing-service";
 import {
   updatePatientRecord,
   getPatientRecord,
@@ -257,7 +257,8 @@ export async function updateAppointmentStatusAction(
 // Staff Action: Record Payment
 export async function recordPaymentAction(
   appointmentId: string,
-  method: string
+  method: string,
+  amount?: number
 ) {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
@@ -272,8 +273,34 @@ export async function recordPaymentAction(
   if (!parsed.success)
     return { success: false, error: "Invalid payment method" };
 
-  return await recordPayment(
+  // For backward compatibility, if amount is not provided, we need to fetch the total bill
+  // But processPayment logic handles partials. 
+  // If the UI calls this without amount, we assume they are paying the Full Balance.
+  // We'll let the service handle validation, but here we ideally need the amount.
+  // Since the old UI didn't send amount, we default to a placeholder or fetch.
+  // Let's rely on the service fetching if needed, OR force the UI to send it.
+  
+  // CRITICAL: The old UI calls this with just (id, method).
+  // We need to fetch the bill to know what "Full Payment" is.
+  // For now, let's update the signature to accept amount, but default to 0 which will fail validation
+  // unless we fetch the bill here.
+  
+  // Strategy: If amount is missing, we fetch the billing record to get the remaining balance.
+  let paymentAmount = amount;
+  if (!paymentAmount) {
+     const { getBillingDetails } = await import("@/lib/services/billing-service");
+     const bill = await getBillingDetails(appointmentId);
+     if (bill.success && bill.data) {
+        paymentAmount = bill.data.remainingBalance;
+     } else {
+        return { success: false, error: "Could not determine payment amount" };
+     }
+  }
+
+  return await processPayment(
     appointmentId,
-    parsed.data.method as PaymentMethod
+    paymentAmount,
+    parsed.data.method,
+    auth.currentUser.uid
   );
 }
