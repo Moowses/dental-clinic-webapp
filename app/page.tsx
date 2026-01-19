@@ -3,9 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/hooks/useAuth";
+
+import { getAllProcedures } from "@/lib/services/clinic-service";
+import type { DentalProcedure } from "@/lib/types/clinic";
 
 const AuthModal = dynamic(() => import("@/components/AuthModal"), {
   ssr: false,
@@ -19,47 +22,130 @@ type Service = {
   price: string;
 };
 
-const services: Service[] = [
-  {
-    title: "Oral Prophylaxis",
-    desc: "Professional teeth cleaning to help remove plaque and tartar for a fresher, healthier smile.",
-    price: "₱ 1,000.00",
-  },
-  {
-    title: "Bone Grafting",
-    desc: "A restorative procedure that helps rebuild bone structure in preparation for implants.",
-    price: "₱ 4,500.00",
-  },
-  {
-    title: "Clear Retainer",
-    desc: "A transparent retainer designed to help maintain teeth alignment after orthodontic treatment.",
-    price: "₱ 2,000.00",
-  },
-];
+function formatPeso(amount?: number | null) {
+  if (typeof amount !== "number" || Number.isNaN(amount)) return "Price varies";
+  return `₱ ${amount.toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 function ServiceCard({ title, desc, price }: Service) {
   return (
-    <div className="group rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="h-40 w-full rounded-t-2xl bg-slate-50 flex items-center justify-center text-slate-400 text-xs">
         Service Image
       </div>
+
       <div className="p-6">
         <h3 className="text-base font-semibold text-slate-900">{title}</h3>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">{desc}</p>
 
-        <div className="mt-5 flex items-center justify-between">
+        <div className="mt-5">
           <span className="text-sm font-semibold text-slate-900">{price}</span>
-          <Link
-            href="/services"
-            className="text-sm font-semibold text-sky-700 hover:text-sky-800"
-          >
-            Learn more →
-          </Link>
         </div>
       </div>
     </div>
   );
 }
+
+function AutoScrollServicesSlider({ items }: { items: Service[] }) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [paused, setPaused] = useState(false);
+
+  const scrollByOne = (dir: "left" | "right") => {
+    const el = wrapRef.current;
+    if (!el) return;
+
+    const card = el.querySelector<HTMLElement>("[data-slide-card='1']");
+    const cardW = card?.offsetWidth ?? 320;
+    const gap = 24; // matches gap-6
+
+    el.scrollBy({
+      left: dir === "left" ? -(cardW + gap) : cardW + gap,
+      behavior: "smooth",
+    });
+  };
+
+  // Auto-scroll every 6 seconds (one card)
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || paused || items.length === 0) return;
+
+    const id = window.setInterval(() => {
+      // If near the end, loop back smoothly
+      const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 10;
+      if (nearEnd) {
+        el.scrollTo({ left: 0, behavior: "smooth" });
+        return;
+      }
+      scrollByOne("right");
+    }, 6000); // ✅ 6 seconds
+
+    return () => window.clearInterval(id);
+  }, [paused, items.length]);
+
+  if (!items.length) return null;
+
+  return (
+    <div
+      className="relative mt-10"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onTouchStart={() => setPaused(true)}
+      onTouchEnd={() => setPaused(false)}
+    >
+      {/* Left Arrow */}
+      <button
+        type="button"
+        onClick={() => scrollByOne("left")}
+        className="absolute left-0 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-white md:inline-flex"
+        aria-label="Previous"
+      >
+        ‹
+      </button>
+
+      {/* Right Arrow */}
+      <button
+        type="button"
+        onClick={() => scrollByOne("right")}
+        className="absolute right-0 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-slate-200 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-white md:inline-flex"
+        aria-label="Next"
+      >
+        ›
+      </button>
+
+      <div
+        ref={wrapRef}
+        className="flex gap-6 overflow-x-auto scroll-smooth pb-4 [-ms-overflow-style:none] [scrollbar-width:none]"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
+        <style jsx>{`
+          div::-webkit-scrollbar {
+            display: none;
+          }
+        `}</style>
+
+        {items.map((s, idx) => (
+          <div
+            key={`${s.title}-${idx}`}
+            className="min-w-[280px] max-w-[280px] sm:min-w-[320px] sm:max-w-[320px]"
+          >
+            {/* marker to measure card width */}
+            <div data-slide-card="1">
+              <ServiceCard {...s} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-3 text-center text-xs text-slate-500 md:hidden">
+        Swipe to browse →
+      </p>
+    </div>
+  );
+}
+
 
 function InfoPill({
   title,
@@ -83,6 +169,11 @@ export default function HomePage() {
   const { user, loading } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
 
+  // Services (procedures from admin, shown as services to patient)
+  const [services, setServices] = useState<Service[]>([]);
+  const [svcLoading, setSvcLoading] = useState(false);
+  const [svcError, setSvcError] = useState<string | null>(null);
+
   useEffect(() => {
     router.refresh();
   }, [router]);
@@ -90,6 +181,36 @@ export default function HomePage() {
   useEffect(() => {
     if (!showAuth) router.refresh();
   }, [showAuth, router]);
+
+  useEffect(() => {
+    const load = async () => {
+      setSvcLoading(true);
+      setSvcError(null);
+
+      const res = await getAllProcedures(true);
+      if (!res.success || !res.data) {
+        setSvcError(res.error || "Failed to load services");
+        setServices([]);
+        setSvcLoading(false);
+        return;
+      }
+
+      const procs: DentalProcedure[] = res.data;
+
+      const mapped: Service[] = procs.map((p: any) => ({
+        title: p?.name || "Service",
+        desc:
+          p?.description ||
+          "Professional dental care with proper assessment and personalized treatment.",
+        price: formatPeso(p?.basePrice ?? null),
+      }));
+
+      setServices(mapped);
+      setSvcLoading(false);
+    };
+
+    load();
+  }, []);
 
   const handleBook = () => {
     if (loading) return;
@@ -102,6 +223,34 @@ export default function HomePage() {
 
   const bookBtnBase =
     "inline-flex w-fit items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60";
+
+  const servicesContent = useMemo(() => {
+    if (svcLoading) {
+      return (
+        <div className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+          Loading services…
+        </div>
+      );
+    }
+
+    if (svcError) {
+      return (
+        <div className="mt-10 rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+          {svcError}
+        </div>
+      );
+    }
+
+    if (!services.length) {
+      return (
+        <div className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+          No services available right now.
+        </div>
+      );
+    }
+
+    return <AutoScrollServicesSlider items={services} />;
+  }, [svcLoading, svcError, services]);
 
   return (
     <>
@@ -209,6 +358,7 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* SERVICES (procedures shown as services) */}
         <section
           id="services"
           className="scroll-mt-24 py-14 md:py-20 bg-slate-50/60"
@@ -227,11 +377,7 @@ export default function HomePage() {
               </p>
             </div>
 
-            <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
-              {services.map((s) => (
-                <ServiceCard key={s.title} {...s} />
-              ))}
-            </div>
+            {servicesContent}
 
             <div className="mt-10 text-center">
               <Link
@@ -407,7 +553,7 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-        </section>8
+        </section>
       </main>
 
       <AuthModal

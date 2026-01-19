@@ -1,22 +1,22 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { signInAction } from "@/app/actions/auth-actions";
 import { useAuth } from "@/lib/hooks/useAuth";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function AdminLoginPage() {
   const router = useRouter();
   const { user, role, loading, logout } = useAuth();
+  const [showPassword, setShowPassword] = useState(false);
 
-  // same pattern as backend-test signin
   const [state, formAction, isPending] = useActionState(signInAction, {
     success: false,
   });
 
-  // If already logged in as staff, go dashboard
   useEffect(() => {
     if (loading) return;
     if (!user) return;
@@ -25,7 +25,6 @@ export default function AdminLoginPage() {
     if (isStaff) router.replace("/admin-dashboard");
   }, [user, role, loading, router]);
 
-  // If just signed in successfully, go dashboard
   useEffect(() => {
     if (state.success) {
       router.push("/admin-dashboard");
@@ -120,11 +119,8 @@ export default function AdminLoginPage() {
             DC
           </div>
           <div>
-            <p className="text-[10px] text-gray-400 uppercase font-black tracking-widest">
+            <h1 className="text-[10px] text-gray-400 uppercase font-black tracking-widest">
               Staff Portal
-            </p>
-            <h1 className="text-xl font-extrabold text-gray-900">
-              Admin / Dentist / Front Desk
             </h1>
           </div>
         </div>
@@ -146,12 +142,24 @@ export default function AdminLoginPage() {
             <label className="block text-sm font-medium text-gray-700">
               Password
             </label>
-            <input
-              name="password"
-              type="password"
-              required
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
-            />
+
+            <div className="relative mt-1">
+              <input
+                name="password"
+                type={showPassword ? "text" : "password"}
+                required
+                className="block w-full rounded-md border border-gray-300 px-3 py-2 pr-10 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           {state.error && (

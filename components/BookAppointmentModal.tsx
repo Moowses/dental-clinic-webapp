@@ -9,9 +9,11 @@ import {
   getAvailabilityAction,
 } from "@/app/actions/appointment-actions";
 
+import { getAllProcedures } from "@/lib/services/clinic-service";
+import type { DentalProcedure } from "@/lib/types/clinic";
+
 const BRAND = "#0E4B5A";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 const TIME_SLOTS = ["08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"];
 
 function pad2(n: number) {
@@ -72,7 +74,12 @@ function SlotButton({
 
   if (selected) {
     return (
-      <button type="button" onClick={onClick} className={`${base} border-transparent text-white`} style={{ backgroundColor: BRAND }}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`${base} border-transparent text-white`}
+        style={{ backgroundColor: BRAND }}
+      >
         {time} <span className="ml-2 text-xs font-extrabold">(Selected)</span>
       </button>
     );
@@ -101,26 +108,27 @@ export default function BookAppointmentModal({
   const { user } = useAuth();
   const router = useRouter();
 
-  const [state, formAction, isPending] = useActionState(bookAppointmentAction, { success: false });
+  const [state, formAction, isPending] = useActionState(bookAppointmentAction, { success: false, error: "" });
 
   const today = useMemo(() => startOfDay(new Date()), []);
-
   const minBookDate = useMemo(() => addDays(today, 1), [today]);
-
   const [viewDate, setViewDate] = useState<Date>(() => startOfDay(new Date()));
-
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedTime, setSelectedTime] = useState<string>("");
-
   const [availability, setAvailability] = useState<CalendarAvailability | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [clientError, setClientError] = useState<string>("");
   const successHandledRef = useRef(false);
-
   const gridCells = useMemo(() => buildMonthGrid(viewDate), [viewDate]);
   const taken = useMemo(() => new Set(availability?.takenSlots || []), [availability]);
   const isHoliday = availability?.isHoliday ?? false;
+  const [fullName, setFullName] = useState("");
+  const isLoggedIn = !!user;
+  const [procedures, setProcedures] = useState<DentalProcedure[]>([]);
+  const [procLoading, setProcLoading] = useState(false);
+  const [procError, setProcError] = useState("");
 
+  // Load availability on date change
   useEffect(() => {
     if (!selectedDate) {
       setAvailability(null);
@@ -145,6 +153,7 @@ export default function BookAppointmentModal({
     };
   }, [selectedDate]);
 
+  // Reset on open/close
   useEffect(() => {
     if (!open) {
       setSelectedDate("");
@@ -153,12 +162,48 @@ export default function BookAppointmentModal({
       setLoadingSlots(false);
       setClientError("");
       setViewDate(startOfDay(new Date()));
+      setProcError("");
       return;
     }
+
     successHandledRef.current = false;
     setClientError("");
-  }, [open]);
 
+    // auto-fill name on open
+    setFullName(user?.displayName || "");
+  }, [open, user?.displayName]);
+
+  // Load procedures for dropdown (active only)
+  useEffect(() => {
+    if (!open) return;
+    if (procedures.length > 0) return;
+
+    let cancelled = false;
+    setProcLoading(true);
+    setProcError("");
+
+    getAllProcedures(true)
+      .then((res: any) => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setProcedures(res.data as DentalProcedure[]);
+        } else {
+          setProcError(res.error || "Failed to load services");
+        }
+      })
+      .catch((e: any) => {
+        if (!cancelled) setProcError(e?.message || "Failed to load services");
+      })
+      .finally(() => {
+        if (!cancelled) setProcLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, procedures.length]);
+
+  // Handle success
   useEffect(() => {
     if (!state.success) return;
     if (successHandledRef.current) return;
@@ -182,7 +227,8 @@ export default function BookAppointmentModal({
     !!selectedTime &&
     !isHoliday &&
     !isPending &&
-    !taken.has(selectedTime);
+    !taken.has(selectedTime) &&
+    (!procError && !procLoading);
 
   const goPrevMonth = () => setViewDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
   const goNextMonth = () => setViewDate((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1));
@@ -243,9 +289,7 @@ export default function BookAppointmentModal({
               {gridCells.map(({ date, inMonth }, idx) => {
                 const d0 = startOfDay(date);
 
-                // Disable any date before minBookDate (tomorrow)
                 const isTooEarly = d0.getTime() < minBookDate.getTime();
-
                 const isToday = isSameDay(d0, today);
                 const isSelected = selectedDateObj ? isSameDay(d0, selectedDateObj) : false;
 
@@ -269,11 +313,7 @@ export default function BookAppointmentModal({
                     className={classes}
                     style={isSelected ? { backgroundColor: BRAND } : undefined}
                     aria-label={toISODate(d0)}
-                    title={
-                      isTooEarly
-                        ? "Appointments must be booked at least 1 day in advance."
-                        : ""
-                    }
+                    title={isTooEarly ? "Appointments must be booked at least 1 day in advance." : ""}
                   >
                     <span className={`${!inMonth ? "opacity-40" : ""}`}>{d0.getDate()}</span>
                     {isToday && !isSelected && (
@@ -334,45 +374,68 @@ export default function BookAppointmentModal({
               action={formAction}
               className="space-y-4"
               onSubmit={(e) => {
-                //trap for same-day / too-early booking
                 if (selectedDate) {
                   const sel = startOfDay(new Date(selectedDate + "T00:00:00"));
                   if (sel.getTime() < minBookDate.getTime()) {
                     e.preventDefault();
-                    setClientError("Appointments must be booked at least 1 day in advance. Please select a future date.");
+                    setClientError(
+                      "Appointments must be booked at least 1 day in advance. Please select a future date."
+                    );
                     return;
                   }
+                }
+
+                // If guest, require name
+                if (!isLoggedIn && !fullName.trim()) {
+                  e.preventDefault();
+                  setClientError("Please enter your full name.");
+                  return;
                 }
               }}
             >
               <input type="hidden" name="date" value={selectedDate} />
               <input type="hidden" name="time" value={selectedTime} />
+              <input type="hidden" name="displayName" value={fullName} />
 
-              {!user?.displayName && (
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Full Name</label>
-                  <input
-                    name="displayName"
-                    required
-                    placeholder="Your full name"
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="text-xs font-bold text-slate-600">Full Name</label>
+                <input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  disabled={isLoggedIn}
+                  placeholder="Your full name"
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300 disabled:bg-slate-50 disabled:text-slate-600"
+                />
+                {isLoggedIn ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    This is taken from your account and can’t be edited here.
+                  </p>
+                ) : null}
+              </div>
 
               <div>
                 <label className="text-xs font-bold text-slate-600">Service Type</label>
                 <select
                   name="serviceType"
                   required
-                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
+                  disabled={procLoading || !!procError}
+                  className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300 disabled:bg-slate-50 disabled:text-slate-500"
                 >
-                  <option value="">Select Service</option>
-                  <option value="General Checkup">General Checkup</option>
-                  <option value="Cleaning">Cleaning</option>
-                  <option value="Tooth Extraction">Tooth Extraction</option>
-                  <option value="Emergency">Emergency Case</option>
+                  <option value="">
+                    {procLoading ? "Loading services..." : "Select Service"}
+                  </option>
+
+                  {/* ✅ Title only (no price) */}
+                  {procedures.map((p: any) => (
+                    <option key={p.id} value={p.name || "Service"}>
+                      {p.name || "Service"}
+                    </option>
+                  ))}
                 </select>
+
+                {procError ? (
+                  <p className="mt-2 text-xs font-semibold text-red-600">{procError}</p>
+                ) : null}
               </div>
 
               <div>
@@ -384,10 +447,9 @@ export default function BookAppointmentModal({
                 />
               </div>
 
-              {/* ✅ show friendly errors */}
-              {(clientError || state.error) && (
+              {(clientError || (state as any).error) && (
                 <p className="text-sm font-bold text-red-600 text-center">
-                  {clientError || state.error}
+                  {clientError || (state as any).error}
                 </p>
               )}
 
