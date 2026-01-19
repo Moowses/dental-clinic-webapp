@@ -216,6 +216,8 @@ export async function getDentistAppointments(dentistId: string, date?: string) {
   }
 }
 
+import { adjustStock } from "./inventory-service";
+
 export async function saveTreatmentRecord(appointmentId: string, data: Omit<TreatmentRecord, 'completedAt' | 'totalBill'>) {
   try {
     const docRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
@@ -228,6 +230,13 @@ export async function saveTreatmentRecord(appointmentId: string, data: Omit<Trea
       totalBill,
       completedAt: serverTimestamp() as unknown as Timestamp,
     };
+
+    // Decrement inventory stock
+    if (data.inventoryUsed && data.inventoryUsed.length > 0) {
+      await Promise.all(data.inventoryUsed.map(item => 
+        adjustStock(item.id, -item.quantity)
+      ));
+    }
 
     await updateDoc(docRef, {
       status: "completed",
