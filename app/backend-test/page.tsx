@@ -886,7 +886,7 @@ function BillingOverviewSection({ onSelectBill }: { onSelectBill: (id: string) =
   const fetchBills = async () => {
     setLoading(true);
     const res = await getAllBillingAction(filter as any);
-    if (res.success) setBills(res.data || []);
+    if (res.success) setBills((res.data as BillingRecord[]) || []);
     setLoading(false);
   };
 
@@ -1985,7 +1985,7 @@ function PatientDirectorySection() {
 
   useEffect(() => {
     getPatientListAction().then((res) => {
-      if (res.success && res.data) setPatients(res.data);
+      if (res.success && res.data) setPatients(res.data as UserProfile[]);
       setLoading(false);
     });
   }, []);

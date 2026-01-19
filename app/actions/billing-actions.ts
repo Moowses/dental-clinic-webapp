@@ -3,9 +3,9 @@ import {
   getBillingDetails, 
   setupPaymentPlan 
 } from "@/lib/services/billing-service";
-import { BillingInstallment } from "@/lib/types/billing";
+import { BillingInstallment, BillingRecord } from "@/lib/types/billing";
 
-export async function getBillingDetailsAction(appointmentId: string) {
+export async function getBillingDetailsAction(appointmentId: string): Promise<{ success: boolean; data?: BillingRecord; error?: string; isVirtual?: boolean }> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
@@ -49,7 +49,7 @@ export async function createPaymentPlanAction(
   return await setupPaymentPlan(appointmentId, installments);
 }
 
-export async function getAllBillingAction(filter: 'paid' | 'unpaid' | 'partial' | 'all' = 'all') {
+export async function getAllBillingAction(filter: 'paid' | 'unpaid' | 'partial' | 'all' = 'all'): Promise<{ success: boolean; data?: BillingRecord[]; error?: string }> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
