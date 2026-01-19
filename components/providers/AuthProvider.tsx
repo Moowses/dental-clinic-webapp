@@ -34,25 +34,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      
-      if (currentUser) {
-        // Fetch role from Firestore
-        const profile = await getUserProfile(currentUser.uid);
-        if (profile.success && profile.data) {
-          setRole(profile.data.role);
-        } else {
-          setRole("client"); // Default fallback
-        }
-      } else {
-        setRole(null);
-      }
-      
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+  const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    if (currentUser) {
+      await currentUser.reload(); //  refresh para sa emailVerified + latest auth state 
+    }
+
+    setUser(currentUser);
+
+    if (currentUser) {
+      const profile = await getUserProfile(currentUser.uid);
+      if (profile.success && profile.data) setRole(profile.data.role);
+      else setRole("client");
+    } else {
+      setRole(null);
+    }
+
+    setLoading(false);
+  });
+
+  return () => unsubscribe();
+}, []);
 
   const handleLogout = async () => {
     const result = await logout();
@@ -64,14 +65,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return result;
   };
 
-  const handleGoogleLogin = async () => {
-    const result = await loginWithGoogle();
-    if (result.success) {
-      // Role fetching is handled by the useEffect listener
-      router.push("/client-dashboard");
+const handleGoogleLogin = async () => {
+  const result = await loginWithGoogle();
+  if (result.success) {
+    const u = auth.currentUser;
+    if (u) await u.reload();
+
+    if (u && !u.emailVerified) {
+      router.push("/?verify=1");
+      return result;
     }
-    return result;
-  };
+
+    router.push("/client-dashboard");
+  }
+  return result;
+};
 
   const handleUpdateProfile = async (data: z.infer<typeof updateProfileSchema>) => {
     if (!user) return { success: false, error: "No user logged in" };

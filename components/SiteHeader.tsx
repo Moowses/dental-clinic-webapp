@@ -16,19 +16,15 @@ export default function SiteHeader() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<"login" | "signup">("login");
 
-  // ✅ When modal closes, re-check auth state (covers successful login via modal)
+  // When modal closes, re-check auth state (covers successful login via modal)
   useEffect(() => {
-    if (!authOpen) {
-      router.refresh();
-    }
+    if (!authOpen) router.refresh();
   }, [authOpen, router]);
 
   const handleLogout = async () => {
     try {
-      // logout might be async in your hook
       await logout?.();
     } finally {
-      // ✅ force UI + server components to re-evaluate auth
       router.refresh();
       router.push("/");
     }
@@ -72,7 +68,6 @@ export default function SiteHeader() {
             </nav>
 
             <div className="flex items-center gap-3">
-              {/* Wait until auth is resolved to avoid flicker */}
               {!loading && user && (
                 <>
                   <Link
@@ -93,15 +88,28 @@ export default function SiteHeader() {
               )}
 
               {!loading && !user && (
-                <button
-                  onClick={() => {
-                    setAuthTab("login");
-                    setAuthOpen(true);
-                  }}
-                  className="inline-flex rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
-                >
-                  Log in
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      setAuthTab("login");
+                      setAuthOpen(true);
+                    }}
+                    className="inline-flex rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                  >
+                    Log in
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setAuthTab("signup");
+                      setAuthOpen(true);
+                    }}
+                    className="inline-flex rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+                    style={{ backgroundColor: BRAND }}
+                  >
+                    Sign up
+                  </button>
+                </>
               )}
 
               <Link
