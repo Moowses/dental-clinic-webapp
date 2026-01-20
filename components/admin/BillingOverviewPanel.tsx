@@ -108,20 +108,22 @@ function getBillingNumbers(bill: AnyBill) {
 function getBillLastActivity(bill: AnyBill) {
   let best: Date | null = null;
 
-  const upd = toDate(bill.updatedAt);
-  const crt = toDate(bill.createdAt);
+  const consider = (d: Date | null) => {
+    if (!d) return;
+    if (!best || d.getTime() > best.getTime()) best = d;
+  };
 
-  if (upd && (!best || upd > best)) best = upd;
-  if (crt && (!best || crt > best)) best = crt;
+  consider(toDate(bill.updatedAt));
+  consider(toDate(bill.createdAt));
 
   const tx = bill.transactions || [];
   for (const t of tx) {
-    const td = toDate(t?.date);
-    if (td && (!best || td > best)) best = td;
+    consider(toDate(t?.date));
   }
 
   return best ? fmtDate(best) : "—";
 }
+
 
 export default function BillingOverviewPanel({
   onSelectBill,
