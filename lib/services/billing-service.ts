@@ -44,7 +44,7 @@ function computeFromItems(items: BillingItem[], fallbackTotal = 0) {
         .reduce((sum, it: any) => sum + Number(it?.price || 0), 0)
     : Number(fallbackTotal || 0);
 
-  const status =
+  const status: "paid" | "overdue" | "unpaid" | "partial" | "refunded" =
     remainingBalance <= 0
       ? "paid"
       : remainingBalance < totalAmount
@@ -77,7 +77,7 @@ export async function createBillingRecord(
       patientId,
       totalAmount: computed.totalAmount,
       remainingBalance: computed.remainingBalance,
-      status: computed.status,
+      status: computed.status as "paid" | "overdue" | "unpaid" | "partial" | "refunded",
       items, // Save itemized list
       paymentPlan: { type: "full", installments: [] },
       transactions: [],
