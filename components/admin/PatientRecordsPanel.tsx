@@ -37,6 +37,11 @@ function Card({
 const inputBase =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-300";
 
+const labelSm = "text-[11px] font-extrabold uppercase tracking-widest text-slate-600";
+const sectionCard = "rounded-2xl border border-slate-200 bg-white p-4";
+const checkLabel = "flex items-center gap-2 text-sm text-slate-800";
+const checkBox = "h-4 w-4";
+
 function PatientDetailsModal({
   patientId,
   onClose,
@@ -47,6 +52,8 @@ function PatientDetailsModal({
   const [record, setRecord] = useState<PatientRecord | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(true);
+
+  const reg: any = (record as any)?.registration;
 
   useEffect(() => {
     Promise.all([getPatientRecord(patientId), getUserProfile(patientId)]).then(
@@ -95,11 +102,28 @@ function PatientDetailsModal({
                 </p>
                 <p className="mt-1 text-sm text-slate-700">
                   <span className="font-bold">Allergies:</span>{" "}
-                  {record?.medicalHistory?.allergies?.join(", ") || "None"}
+                  {reg?.medical_history?.allergies
+                    ? [
+                        reg?.medical_history?.allergies?.local_anesthetic
+                          ? "Local Anaesthetic"
+                          : null,
+                        reg?.medical_history?.allergies?.penicillin_antibiotics
+                          ? "Penicillin"
+                          : null,
+                        reg?.medical_history?.allergies?.sulfa_drugs ? "Sulfa" : null,
+                        reg?.medical_history?.allergies?.aspirin ? "Aspirin" : null,
+                        reg?.medical_history?.allergies?.latex ? "Latex" : null,
+                        reg?.medical_history?.allergies?.others || null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ") || "None"
+                    : record?.medicalHistory?.allergies?.join(", ") || "None"}
                 </p>
                 <p className="text-sm text-slate-700">
                   <span className="font-bold">Conditions:</span>{" "}
-                  {record?.medicalHistory?.conditions?.join(", ") || "None"}
+                  {reg?.medical_history?.conditions_checklist?.join(", ") ||
+                    record?.medicalHistory?.conditions?.join(", ") ||
+                    "None"}
                 </p>
               </div>
             </div>
@@ -130,6 +154,8 @@ function PatientEditForm({
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(true);
 
+  const reg: any = (record as any)?.registration;
+
   const [state, formAction, isPending] = useActionState(updatePatientRecordAction, {
     success: false,
   });
@@ -149,82 +175,420 @@ function PatientEditForm({
   if (loading) return <p className="text-sm text-slate-500">Loading record...</p>;
 
   return (
-    <form action={formAction} className="space-y-3">
+    <form action={formAction} className="space-y-5">
       <input type="hidden" name="targetUid" value={patientId} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <input
-          name="displayName"
-          defaultValue={displayName}
-          className={inputBase}
-          placeholder="Full Name"
-        />
-        <input
-          name="phoneNumber"
-          defaultValue={record?.phoneNumber}
-          className={inputBase}
-          placeholder="Phone"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <input
-          name="dateOfBirth"
-          type="date"
-          defaultValue={record?.dateOfBirth}
-          className={inputBase}
-        />
-        <select name="gender" defaultValue={record?.gender || "male"} className={inputBase}>
-          <option value="male">Male</option>
-          <option value="female">Female</option>
-          <option value="other">Other</option>
-        </select>
-      </div>
-
-      <input name="address" defaultValue={record?.address} className={inputBase} placeholder="Address" />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <input
-          name="allergies"
-          defaultValue={record?.medicalHistory?.allergies?.join(", ")}
-          className={inputBase}
-          placeholder="Allergies (comma separated)"
-        />
-        <input
-          name="conditions"
-          defaultValue={record?.medicalHistory?.conditions?.join(", ")}
-          className={inputBase}
-          placeholder="Conditions (comma separated)"
-        />
-      </div>
-
-      <textarea
-        name="medications"
-        defaultValue={record?.medicalHistory?.medications || ""}
-        className={`${inputBase} h-20 resize-none`}
-        placeholder="Medications / Notes"
-      />
-
-      <button
-        disabled={isPending}
-        className="w-full rounded-xl bg-teal-700 text-white py-2.5 font-extrabold hover:bg-teal-800 disabled:opacity-60"
-      >
-        {isPending ? "Saving..." : "Save Patient Record"}
-      </button>
-
-      {state.success ? (
-        <p className="text-emerald-700 text-xs font-extrabold text-center">
-          Update Successful
+      {/* Header */}
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-extrabold text-slate-900">Patient Record</p>
+        <p className="text-xs text-slate-500">
+          Update patient profile + clinical medical history for dental screening.
         </p>
-      ) : null}
+      </div>
 
-      <button
-        type="button"
-        onClick={onClose}
-        className="w-full text-xs text-slate-500 hover:text-slate-700"
-      >
-        Close
-      </button>
+      {/* Core patient info */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <p className={labelSm}>Basic Information</p>
+
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <input
+            name="displayName"
+            defaultValue={displayName}
+            className={inputBase}
+            placeholder="Full Name"
+          />
+          <input
+            name="phoneNumber"
+            defaultValue={record?.phoneNumber}
+            className={inputBase}
+            placeholder="Phone"
+          />
+
+          <input
+            name="dateOfBirth"
+            type="date"
+            defaultValue={record?.dateOfBirth}
+            className={inputBase}
+          />
+          <select name="gender" defaultValue={record?.gender || "male"} className={inputBase}>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+
+          <div className="lg:col-span-2">
+            <input
+              name="address"
+              defaultValue={record?.address}
+              className={inputBase}
+              placeholder="Address"
+            />
+          </div>
+
+          <input
+            name="allergies"
+            defaultValue={record?.medicalHistory?.allergies?.join(", ")}
+            className={inputBase}
+            placeholder="Allergies (legacy, comma separated)"
+          />
+          <input
+            name="conditions"
+            defaultValue={record?.medicalHistory?.conditions?.join(", ")}
+            className={inputBase}
+            placeholder="Conditions (legacy, comma separated)"
+          />
+
+          <div className="lg:col-span-2">
+            <textarea
+              name="medications"
+              defaultValue={record?.medicalHistory?.medications || ""}
+              className={`${inputBase} h-24 resize-none`}
+              placeholder="Medications / Notes"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Medical History (Clinical) – redesigned */}
+      <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-extrabold text-slate-900">Medical History (Clinical)</p>
+          <p className="text-xs text-slate-500">
+            Staff-only clinical fields. Layout is wide for fast chairside review.
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          {/* LEFT: Physician + Screening */}
+          <div className="space-y-4">
+            {/* Physician */}
+            <div className={sectionCard}>
+              <p className={labelSm}>Physician</p>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <input
+                  name="physicianName"
+                  defaultValue={reg?.medical_history?.physician?.name || ""}
+                  className={inputBase}
+                  placeholder="Physician Name"
+                />
+                <input
+                  name="physicianSpecialty"
+                  defaultValue={reg?.medical_history?.physician?.specialty || ""}
+                  className={inputBase}
+                  placeholder="Specialty"
+                />
+                <input
+                  name="physicianOffice"
+                  defaultValue={reg?.medical_history?.physician?.office_address || ""}
+                  className={inputBase}
+                  placeholder="Office Address"
+                />
+                <input
+                  name="physicianNumber"
+                  defaultValue={reg?.medical_history?.physician?.office_number || ""}
+                  className={inputBase}
+                  placeholder="Office No."
+                />
+              </div>
+            </div>
+
+            {/* General screening */}
+            <div className={sectionCard}>
+              <div className="flex items-center justify-between gap-3">
+                <p className={labelSm}>General Screening</p>
+
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                  <input
+                    type="checkbox"
+                    name="inGoodHealth"
+                    defaultChecked={!!reg?.medical_history?.general_health_screening?.in_good_health}
+                    className={checkBox}
+                  />
+                  In good health
+                </label>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <div className="grid gap-2 sm:grid-cols-[210px_1fr] sm:items-center">
+                  <label className={checkLabel}>
+                    <input
+                      type="checkbox"
+                      name="underMedicalCondition"
+                      defaultChecked={
+                        !!reg?.medical_history?.general_health_screening?.under_medical_condition
+                          ?.status
+                      }
+                      className={checkBox}
+                    />
+                    Under medical treatment
+                  </label>
+                  <input
+                    name="conditionDesc"
+                    defaultValue={
+                      reg?.medical_history?.general_health_screening?.under_medical_condition
+                        ?.condition_description || ""
+                    }
+                    className={inputBase}
+                    placeholder="Condition details"
+                  />
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-[210px_1fr] sm:items-center">
+                  <label className={checkLabel}>
+                    <input
+                      type="checkbox"
+                      name="seriousIllness"
+                      defaultChecked={
+                        !!reg?.medical_history?.general_health_screening?.serious_illness_or_surgery
+                          ?.status
+                      }
+                      className={checkBox}
+                    />
+                    Serious illness / surgery
+                  </label>
+                  <input
+                    name="illnessDetails"
+                    defaultValue={
+                      reg?.medical_history?.general_health_screening?.serious_illness_or_surgery
+                        ?.details || ""
+                    }
+                    className={inputBase}
+                    placeholder="Details"
+                  />
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-[210px_1fr] sm:items-center">
+                  <label className={checkLabel}>
+                    <input
+                      type="checkbox"
+                      name="hospitalized"
+                      defaultChecked={
+                        !!reg?.medical_history?.general_health_screening?.hospitalized?.status
+                      }
+                      className={checkBox}
+                    />
+                    Hospitalized recently
+                  </label>
+                  <input
+                    name="hospitalizedDetails"
+                    defaultValue={
+                      reg?.medical_history?.general_health_screening?.hospitalized?.when_and_why ||
+                      ""
+                    }
+                    className={inputBase}
+                    placeholder="When and why"
+                  />
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-[210px_1fr] sm:items-start">
+                  <label className={`${checkLabel} pt-1`}>
+                    <input
+                      type="checkbox"
+                      name="takingMeds"
+                      defaultChecked={
+                        !!reg?.medical_history?.general_health_screening?.taking_medication?.status
+                      }
+                      className={checkBox}
+                    />
+                    Taking medication
+                  </label>
+                  <textarea
+                    name="medicationList"
+                    defaultValue={
+                      reg?.medical_history?.general_health_screening?.taking_medication
+                        ?.medication_list || ""
+                    }
+                    className={`${inputBase} h-20 resize-none`}
+                    placeholder="List medications"
+                  />
+                </div>
+
+                <div className="pt-1 flex flex-wrap items-center gap-6">
+                  <label className={checkLabel}>
+                    <input
+                      type="checkbox"
+                      name="usesTobacco"
+                      defaultChecked={
+                        !!reg?.medical_history?.general_health_screening?.uses_tobacco
+                      }
+                      className={checkBox}
+                    />
+                    Uses tobacco
+                  </label>
+                  <label className={checkLabel}>
+                    <input
+                      type="checkbox"
+                      name="usesDrugs"
+                      defaultChecked={
+                        !!reg?.medical_history?.general_health_screening?.uses_alcohol_or_drugs
+                      }
+                      className={checkBox}
+                    />
+                    Alcohol / drugs
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT: Allergies + Vitals + Women + Conditions */}
+          <div className="space-y-4">
+            {/* Allergies */}
+            <div className={sectionCard}>
+              <p className={labelSm}>Allergies</p>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 text-sm text-slate-800">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="allergyAnaesthetic"
+                    defaultChecked={!!reg?.medical_history?.allergies?.local_anesthetic}
+                    className={checkBox}
+                  />
+                  Local anaesthetic
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="allergyPenicillin"
+                    defaultChecked={!!reg?.medical_history?.allergies?.penicillin_antibiotics}
+                    className={checkBox}
+                  />
+                  Penicillin
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="allergySulfa"
+                    defaultChecked={!!reg?.medical_history?.allergies?.sulfa_drugs}
+                    className={checkBox}
+                  />
+                  Sulfa drugs
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="allergyAspirin"
+                    defaultChecked={!!reg?.medical_history?.allergies?.aspirin}
+                    className={checkBox}
+                  />
+                  Aspirin
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="allergyLatex"
+                    defaultChecked={!!reg?.medical_history?.allergies?.latex}
+                    className={checkBox}
+                  />
+                  Latex
+                </label>
+              </div>
+
+              <input
+                name="allergyOthers"
+                defaultValue={reg?.medical_history?.allergies?.others || ""}
+                className={`${inputBase} mt-3`}
+                placeholder="Other allergies"
+              />
+            </div>
+
+            {/* Vitals */}
+            <div className={sectionCard}>
+              <p className={labelSm}>Vitals</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <input
+                  name="bloodType"
+                  defaultValue={reg?.medical_history?.vitals?.blood_type || ""}
+                  className={inputBase}
+                  placeholder="Blood Type"
+                />
+                <input
+                  name="bloodPressure"
+                  defaultValue={reg?.medical_history?.vitals?.blood_pressure || ""}
+                  className={inputBase}
+                  placeholder="Blood Pressure"
+                />
+                <input
+                  name="bleedingTime"
+                  defaultValue={reg?.medical_history?.vitals?.bleeding_time || ""}
+                  className={inputBase}
+                  placeholder="Bleeding Time"
+                />
+              </div>
+            </div>
+
+            {/* Women only */}
+            <div className={sectionCard}>
+              <p className={labelSm}>For Women Only</p>
+              <div className="mt-3 flex flex-wrap items-center gap-6 text-sm text-slate-800">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="isPregnant"
+                    defaultChecked={!!reg?.medical_history?.women_only?.is_pregnant}
+                    className={checkBox}
+                  />
+                  Pregnant
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="isNursing"
+                    defaultChecked={!!reg?.medical_history?.women_only?.is_nursing}
+                    className={checkBox}
+                  />
+                  Nursing
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="birthControl"
+                    defaultChecked={!!reg?.medical_history?.women_only?.taking_birth_control}
+                    className={checkBox}
+                  />
+                  Birth control
+                </label>
+              </div>
+            </div>
+
+            {/* Conditions checklist */}
+            <div className={sectionCard}>
+              <p className={labelSm}>Conditions Checklist</p>
+              <textarea
+                name="conditionsClinical"
+                defaultValue={(reg?.medical_history?.conditions_checklist || []).join(", ")}
+                className={`${inputBase} mt-3 h-28 resize-none`}
+                placeholder="Comma separated (e.g., Hypertension, Diabetes, Asthma)"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <button
+          disabled={isPending}
+          className="w-full rounded-xl bg-teal-700 text-white py-3 font-extrabold hover:bg-teal-800 disabled:opacity-60"
+        >
+          {isPending ? "Saving..." : "Save Patient Record"}
+        </button>
+
+        {state.success ? (
+          <p className="text-emerald-700 text-xs font-extrabold text-center">
+            Update Successful
+          </p>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full text-xs text-slate-500 hover:text-slate-700"
+        >
+          Close
+        </button>
+      </div>
     </form>
   );
 }
@@ -238,14 +602,16 @@ function PatientEditModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h3 className="text-lg font-extrabold text-slate-900">Finalize Patient Record</h3>
+      {/* Wider professional modal */}
+      <div className="w-full max-w-6xl rounded-2xl bg-white border border-slate-200 shadow-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100">
+          <h3 className="text-lg font-extrabold text-slate-900">Edit Patient Record</h3>
           <p className="text-sm text-slate-500">
-            Complete missing information before continuing
+            Complete clinical details for proper dental assessment.
           </p>
         </div>
-        <div className="p-5">
+        {/* Scrollable body */}
+        <div className="p-6 max-h-[85vh] overflow-y-auto">
           <PatientEditForm patientId={patientId} onClose={onClose} />
         </div>
       </div>
@@ -265,7 +631,6 @@ export default function PatientRecordsPanel() {
   const [viewingUid, setViewingUid] = useState<string | null>(null);
   const [editingUid, setEditingUid] = useState<string | null>(null);
 
-  // Load directory once (default table data)
   useEffect(() => {
     setDirLoading(true);
     getPatientListAction().then((res: any) => {
@@ -274,7 +639,6 @@ export default function PatientRecordsPanel() {
     });
   }, []);
 
-  // Search behavior (kept)
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
@@ -292,9 +656,6 @@ export default function PatientRecordsPanel() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Table data source:
-  // - If searchQuery has value -> use search results
-  // - Else -> use directory
   const tableRows = useMemo(() => {
     if (searchQuery.trim()) return searchResults;
     return directory;
@@ -307,10 +668,9 @@ export default function PatientRecordsPanel() {
   return (
     <Card
       title="Patient Search & Records"
-      subtitle="Search, view, and complete patient records"
+      subtitle="Search, view, and update patient medical history"
     >
       <div className="space-y-3">
-        {/* Search input (kept) */}
         <div className="relative">
           <input
             className={inputBase}
@@ -320,7 +680,6 @@ export default function PatientRecordsPanel() {
             onFocus={() => setShowDropdown(true)}
           />
 
-          {/* Optional dropdown (kept) */}
           {showDropdown && searchQuery.trim() && (searching || searchResults.length > 0) && (
             <ul className="absolute z-10 w-full bg-white border border-slate-200 rounded-2xl shadow-lg max-h-60 overflow-y-auto mt-2">
               {searching && <li className="p-3 text-sm text-slate-500">Searching...</li>}
@@ -332,7 +691,6 @@ export default function PatientRecordsPanel() {
                     onClick={() => {
                       setSearchQuery(u.displayName || u.email);
                       setShowDropdown(false);
-                      // keep results displayed; user can use table actions
                     }}
                   >
                     <div className="font-bold text-slate-900">
@@ -345,7 +703,6 @@ export default function PatientRecordsPanel() {
           )}
         </div>
 
-        {/* Table */}
         <div className="pt-2">
           <div className="flex items-center justify-between">
             <p className="text-xs font-extrabold text-slate-700">{tableModeLabel}</p>
@@ -420,7 +777,6 @@ export default function PatientRecordsPanel() {
             </table>
           </div>
 
-          {/* Reset */}
           {searchQuery.trim() && (
             <button
               onClick={() => {
@@ -436,16 +792,10 @@ export default function PatientRecordsPanel() {
         </div>
 
         {viewingUid && (
-          <PatientDetailsModal
-            patientId={viewingUid}
-            onClose={() => setViewingUid(null)}
-          />
+          <PatientDetailsModal patientId={viewingUid} onClose={() => setViewingUid(null)} />
         )}
         {editingUid && (
-          <PatientEditModal
-            patientId={editingUid}
-            onClose={() => setEditingUid(null)}
-          />
+          <PatientEditModal patientId={editingUid} onClose={() => setEditingUid(null)} />
         )}
       </div>
     </Card>

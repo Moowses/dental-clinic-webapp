@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getDentistScheduleAction } from "@/app/actions/appointment-actions";
 import { getTreatmentToolsAction, completeTreatmentAction } from "@/app/actions/treatment-actions";
@@ -46,10 +46,84 @@ function StatusPill({ status }: { status: string }) {
       : "bg-slate-50 text-slate-700 border-slate-200";
 
   return (
-    <span className={`inline-flex items-center px-3 py-1 rounded-full border text-[11px] font-extrabold uppercase tracking-wide ${cls}`}>
+    <span
+      className={`inline-flex items-center px-3 py-1 rounded-full border text-[11px] font-extrabold uppercase tracking-wide ${cls}`}
+    >
       {status}
     </span>
   );
+}
+
+function toISODate(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x.toISOString().split("T")[0];
+}
+
+function addDays(isoDate: string, days: number) {
+  const d = new Date(isoDate + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return toISODate(d);
+}
+
+function formatNiceDate(isoDate: string) {
+  const d = new Date(isoDate + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatRangeLabel(startISO: string, days: number) {
+  const start = new Date(startISO + "T00:00:00");
+  const end = new Date(startISO + "T00:00:00");
+  end.setDate(end.getDate() + (days - 1));
+
+  const startLabel = start.toLocaleDateString(undefined, {
+    month: "short",
+    day: "2-digit",
+  });
+  const endLabel = end.toLocaleDateString(undefined, {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+
+  return `${startLabel} – ${endLabel}`;
+}
+
+function parseTimeToSortable(time?: string) {
+  // supports "09:00", "9:00", "09:00 AM" loosely
+  if (!time) return "99:99";
+  const t = time.trim().toUpperCase();
+
+  // If already HH:MM
+  const hhmm = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (hhmm) {
+    const h = String(hhmm[1]).padStart(2, "0");
+    const m = String(hhmm[2]).padStart(2, "0");
+    return `${h}:${m}`;
+  }
+
+  // If "HH:MM AM/PM"
+  const ampm = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+  if (ampm) {
+    let h = parseInt(ampm[1], 10);
+    const m = String(ampm[2]).padStart(2, "0");
+    const ap = ampm[3];
+    if (ap === "AM") {
+      if (h === 12) h = 0;
+    } else {
+      if (h !== 12) h += 12;
+    }
+    return `${String(h).padStart(2, "0")}:${m}`;
+  }
+
+  // Fallback: push unknown times to bottom
+  return "99:99";
 }
 
 function TreatmentModal({
@@ -124,7 +198,10 @@ function TreatmentModal({
               <p className="text-xs font-extrabold text-slate-800">Procedures</p>
               <div className="mt-3 space-y-2 text-sm">
                 {tools?.procedures.map((p) => (
-                  <label key={p.id} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 p-3">
+                  <label
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 p-3"
+                  >
                     <div className="flex items-center gap-3">
                       <input
                         type="checkbox"
@@ -147,7 +224,10 @@ function TreatmentModal({
               <p className="text-xs font-extrabold text-slate-800">Inventory Used</p>
               <div className="mt-3 space-y-2 text-sm">
                 {tools?.inventory.map((i) => (
-                  <div key={i.id} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 p-3">
+                  <div
+                    key={i.id}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 p-3"
+                  >
                     <div>
                       <p className="font-bold text-slate-900">{i.name}</p>
                       <p className="text-xs text-slate-500">Current stock: {i.stock}</p>
@@ -156,7 +236,10 @@ function TreatmentModal({
                       <button
                         type="button"
                         onClick={() =>
-                          setUsedInv({ ...usedInv, [i.id]: Math.max(0, (usedInv[i.id] || 0) - 1) })
+                          setUsedInv({
+                            ...usedInv,
+                            [i.id]: Math.max(0, (usedInv[i.id] || 0) - 1),
+                          })
                         }
                         className="h-9 w-9 rounded-xl border border-slate-200 bg-white font-extrabold hover:bg-slate-50"
                       >
@@ -197,33 +280,100 @@ function TreatmentModal({
 }
 
 export default function DentistSchedulePanel() {
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const todayISO = useMemo(() => toISODate(new Date()), []);
+  const [startDate, setStartDate] = useState(todayISO);
+
+  // Range options
+  const [rangeDays, setRangeDays] = useState<7 | 30>(7);
+
+  // Flattened merged schedule (for next N days)
   const [schedule, setSchedule] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [activeTreatment, setActiveTreatment] = useState<Appointment | null>(null);
 
-  const refresh = useCallback(() => {
+  const datesToFetch = useMemo(() => {
+    const list: string[] = [];
+    for (let i = 0; i < rangeDays; i++) list.push(addDays(startDate, i));
+    return list;
+  }, [startDate, rangeDays]);
+
+  const refresh = useCallback(async () => {
     setLoading(true);
-    getDentistScheduleAction(date).then((res) => {
-      if (res.success && res.data) setSchedule((res.data as Appointment[]) || []);
-      setLoading(false);
+
+    // Fetch each day using existing backend action (no backend change)
+    const results = await Promise.all(
+      datesToFetch.map(async (d) => {
+        const res = await getDentistScheduleAction(d);
+        if (res?.success && res.data) {
+          const rows = ((res.data as Appointment[]) || []).map((a) => ({
+            ...a,
+            // ensure date is set consistently for sorting/group label
+            date: (a as any).date || d,
+          }));
+          return rows;
+        }
+        return [];
+      })
+    );
+
+    const merged = results.flat();
+
+    // Sort by date then time (stable schedule)
+    merged.sort((a, b) => {
+      const da = String((a as any).date || "");
+      const db = String((b as any).date || "");
+      if (da !== db) return da.localeCompare(db);
+
+      const ta = parseTimeToSortable((a as any).time);
+      const tb = parseTimeToSortable((b as any).time);
+      return ta.localeCompare(tb);
     });
-  }, [date]);
+
+    setSchedule(merged);
+    setLoading(false);
+  }, [datesToFetch]);
 
   useEffect(() => {
     refresh();
-  }, [date, refresh]);
+  }, [refresh]);
+
+  const subtitle = useMemo(() => {
+    const label = formatRangeLabel(startDate, rangeDays);
+    return `Showing: ${label}`;
+  }, [startDate, rangeDays]);
 
   return (
-    <Card title="My Assigned Patients" subtitle="Treat and finalize appointments">
-      <div className="flex items-center justify-between gap-3">
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className={`${inputBase} max-w-[180px]`}
-        />
+    <Card title="Upcoming Patient Schedule" subtitle={subtitle}>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-extrabold text-slate-600 uppercase tracking-widest">
+              Start
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={`${inputBase} max-w-[180px]`}
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-extrabold text-slate-600 uppercase tracking-widest">
+              Range
+            </label>
+            <select
+              value={rangeDays}
+              onChange={(e) => setRangeDays((e.target.value === "30" ? 30 : 7) as 7 | 30)}
+              className={`${inputBase} max-w-[220px]`}
+            >
+              <option value={7}>Next 7 days</option>
+              <option value={30}>Next 30 days</option>
+            </select>
+          </div>
+        </div>
+
         <button
           onClick={refresh}
           className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-extrabold hover:bg-slate-50"
@@ -234,33 +384,59 @@ export default function DentistSchedulePanel() {
 
       <div className="mt-4">
         {loading ? (
-          <p className="text-sm text-slate-500">Loading patients...</p>
+          <p className="text-sm text-slate-500">Loading schedule...</p>
         ) : schedule.length === 0 ? (
-          <p className="text-sm text-slate-500 italic">No assigned patients for this date.</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <p className="text-sm font-extrabold text-slate-900">No upcoming appointments</p>
+            <p className="mt-1 text-xs text-slate-500">
+              No assigned appointments for the selected range.
+            </p>
+          </div>
         ) : (
           <div className="space-y-3">
-            {schedule.map((app) => (
-              <div key={app.id} className="border border-slate-200 rounded-2xl p-4 flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-extrabold text-slate-900">
-                    {app.time} — {app.serviceType}
-                  </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <StatusPill status={app.status} />
-                    <span className="text-xs text-slate-500">{app.date}</span>
-                  </div>
-                </div>
+            {schedule.map((app) => {
+              const patientLabel =
+                (app as any).patientName ||
+                (app as any).patientFullName ||
+                (app as any).patientEmail ||
+                (app as any).patientId ||
+                "Patient";
 
-                {app.status !== "completed" && (
-                  <button
-                    onClick={() => setActiveTreatment(app)}
-                    className="px-4 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-sm hover:bg-teal-800"
-                  >
-                    Treat
-                  </button>
-                )}
-              </div>
-            ))}
+              const dateLabel = formatNiceDate(String((app as any).date || ""));
+
+              return (
+                <div
+                  key={app.id}
+                  className="border border-slate-200 rounded-2xl p-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-base font-extrabold text-slate-900">
+                      {(app as any).time} — {(app as any).serviceType}
+                    </p>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <StatusPill status={(app as any).status} />
+                      <span className="text-xs text-slate-500">{dateLabel}</span>
+                    </div>
+
+                    <p className="mt-2 text-sm text-slate-700">
+                      <span className="font-bold text-slate-900">Patient:</span> {patientLabel}
+                    </p>
+                  </div>
+
+                  {(app as any).status !== "completed" ? (
+                    <button
+                      onClick={() => setActiveTreatment(app)}
+                      className="px-4 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-sm hover:bg-teal-800"
+                    >
+                      Treat
+                    </button>
+                  ) : (
+                    <span className="text-xs font-extrabold text-slate-500">Completed</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
