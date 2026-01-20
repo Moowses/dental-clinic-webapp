@@ -14,22 +14,57 @@ import DentistSchedulePanel from "@/components/admin/DentistSchedulePanel";
 import StaffHRPanel from "@/components/admin/StaffHRPanel";
 import ProceduresPanel from "@/components/admin/ProceduresPanel";
 
-type TabKey = "dashboard" | "patients" | "staff" | "procedures";
+import UpcomingAppointmentsPanel from "@/components/admin/UpcomingAppointmentsPanel";
+import UnassignedAppointmentsPanel from "@/components/admin/UnassignedAppointmentsPanel";
+
+import BillingOverviewPanel from "@/components/admin/BillingOverviewPanel";
+import BillingPaymentPlansPanel from "@/components/admin/BillingPaymentPlansPanel";
+
+type TabKey =
+  | "dashboard"
+  | "appointments"
+  | "billing"
+  | "patients"
+  | "staff"
+  | "procedures";
+
+type ApptTab = "calendar" | "upcoming" | "unassigned";
+
+const APPT_SUB_ITEMS = [
+  { key: "calendar" as const, label: "Calendar" },
+  { key: "upcoming" as const, label: "Upcoming" },
+  { key: "unassigned" as const, label: "Unassigned" },
+] as const;
 
 export default function AdminDashboardPage() {
   const router = useRouter();
   const { user, role, loading, logout } = useAuth();
 
   const [tab, setTab] = useState<TabKey>("dashboard");
+  const [apptTab, setApptTab] = useState<ApptTab>("calendar");
+  const [activeBillingId, setActiveBillingId] = useState<string | null>(null);
+
+  // IMPORTANT: forces BillingOverview to refetch after modal updates/close
+  const [billingRefreshKey, setBillingRefreshKey] = useState(0);
 
   const isAdmin = role === "admin";
   const isDentist = role === "dentist";
   const isFrontDesk = role === "front-desk";
 
+  const canSeeAppointments = isAdmin || isFrontDesk;
+  const canSeeBilling = isAdmin || isFrontDesk;
+
   useEffect(() => {
     if (loading) return;
     if (!user) router.replace("/admin");
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (!loading && user) {
+      if (tab === "appointments" && !canSeeAppointments) setTab("dashboard");
+      if (tab === "billing" && !canSeeBilling) setTab("dashboard");
+    }
+  }, [tab, canSeeAppointments, canSeeBilling, loading, user]);
 
   if (loading) {
     return (
@@ -74,6 +109,16 @@ export default function AdminDashboardPage() {
     alert("Account Settings is not available yet.");
   };
 
+  const goAppointments = (sub: ApptTab) => {
+    setTab("appointments");
+    setApptTab(sub);
+  };
+
+  const goBilling = () => {
+    setTab("billing");
+    setActiveBillingId(null);
+  };
+
   return (
     <div className="min-h-screen bg-[#f6f8fb]">
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -85,7 +130,9 @@ export default function AdminDashboardPage() {
                 🦷
               </div>
               <div className="min-w-0">
-                <p className="font-extrabold text-slate-900 truncate">Staff Portal</p>
+                <p className="font-extrabold text-slate-900 truncate">
+                  Staff Portal
+                </p>
                 <p className="text-xs text-slate-500 truncate">{user.email}</p>
               </div>
             </div>
@@ -102,6 +149,55 @@ export default function AdminDashboardPage() {
                 Dashboard
               </button>
 
+              {canSeeAppointments && (
+                <div>
+                  <button
+                    className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
+                      tab === "appointments"
+                        ? "bg-slate-900 text-white"
+                        : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                    }`}
+                    onClick={() => setTab("appointments")}
+                  >
+                    Appointments
+                  </button>
+
+                  {tab === "appointments" && (
+                    <div className="mt-2 space-y-2 pl-2">
+                      {APPT_SUB_ITEMS.map((s) => {
+                        const active = apptTab === s.key;
+                        return (
+                          <button
+                            key={s.key}
+                            className={`w-full text-left px-4 py-2 rounded-xl font-extrabold text-sm ${
+                              active
+                                ? "bg-slate-100 text-slate-900 border border-slate-200"
+                                : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-700"
+                            }`}
+                            onClick={() => goAppointments(s.key)}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canSeeBilling && (
+                <button
+                  className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
+                    tab === "billing"
+                      ? "bg-slate-900 text-white"
+                      : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                  }`}
+                  onClick={goBilling}
+                >
+                  Billing
+                </button>
+              )}
+
               <button
                 className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
                   tab === "patients"
@@ -113,7 +209,6 @@ export default function AdminDashboardPage() {
                 Patient Records
               </button>
 
-              {/* Admin-only buttons BELOW Patient Records */}
               {isAdmin && (
                 <>
                   <button
@@ -140,7 +235,6 @@ export default function AdminDashboardPage() {
                 </>
               )}
 
-              {/* Account Settings -> alert only */}
               <button
                 className="w-full text-left px-4 py-3 rounded-xl font-extrabold bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
                 onClick={handleAccountSettingsClick}
@@ -161,7 +255,7 @@ export default function AdminDashboardPage() {
 
           {/* Main */}
           <main className="space-y-6">
-            {/* Hero */}
+            {/* Hero (unchanged layout; removed top action button; reduced KPI fonts) */}
             <section className="rounded-2xl overflow-hidden shadow-sm border border-slate-200">
               <div className="bg-gradient-to-r from-[#0f5f73] to-[#1aa4c7] px-6 py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-5">
                 <div className="flex items-center gap-4">
@@ -182,12 +276,6 @@ export default function AdminDashboardPage() {
                     Role:{" "}
                     <span className="uppercase font-extrabold">{role || "staff"}</span>
                   </div>
-                  <button
-                    className="bg-white text-slate-900 font-extrabold px-5 py-3 rounded-2xl hover:bg-white/90 transition"
-                    onClick={() => setTab("patients")}
-                  >
-                    Patient Records
-                  </button>
                 </div>
               </div>
 
@@ -195,7 +283,7 @@ export default function AdminDashboardPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
                     <p className="text-xs font-bold text-slate-500">Session</p>
-                    <div className="mt-2 text-3xl font-extrabold text-slate-900">
+                    <div className="mt-2 text-xl font-extrabold text-slate-900">
                       Active
                     </div>
                     <p className="mt-1 text-xs text-slate-500">Signed in</p>
@@ -203,7 +291,7 @@ export default function AdminDashboardPage() {
 
                   <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
                     <p className="text-xs font-bold text-slate-500">Role</p>
-                    <div className="mt-2 text-3xl font-extrabold text-slate-900">
+                    <div className="mt-2 text-xl font-extrabold text-slate-900">
                       {(role || "staff").toUpperCase()}
                     </div>
                     <p className="mt-1 text-xs text-slate-500">Clinic staff</p>
@@ -211,30 +299,92 @@ export default function AdminDashboardPage() {
 
                   <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
                     <p className="text-xs font-bold text-slate-500">Quick</p>
-                    <div className="mt-2 text-3xl font-extrabold text-slate-900">
+                    <div className="mt-2 text-xl font-extrabold text-slate-900">
                       Tools
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
-                      Appointments & records
+                      Appointments, billing &amp; records
                     </p>
                   </div>
                 </div>
               </div>
             </section>
 
-            {/* TAB CONTENT */}
+            {/* Dashboard */}
             {tab === "dashboard" && (
               <div className="space-y-6">
-                {(isFrontDesk || isAdmin) && <ClinicSchedulePanel />}
                 {(isDentist || isAdmin) && <DentistSchedulePanel />}
                 {(isFrontDesk || isAdmin) && <InventoryPanel />}
               </div>
             )}
 
+            {/* Appointments */}
+            {tab === "appointments" && canSeeAppointments && (
+              <div className="space-y-6">
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-extrabold text-slate-900">
+                        Appointments
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        Calendar, upcoming bookings, and unassigned queue.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {APPT_SUB_ITEMS.map((t) => {
+                        const active = apptTab === t.key;
+                        return (
+                          <button
+                            key={t.key}
+                            onClick={() => setApptTab(t.key)}
+                            className={`px-4 py-2 rounded-xl font-extrabold text-sm transition ${
+                              active
+                                ? "bg-slate-900 text-white"
+                                : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {apptTab === "calendar" && <ClinicSchedulePanel />}
+                {apptTab === "upcoming" && <UpcomingAppointmentsPanel />}
+                {apptTab === "unassigned" && <UnassignedAppointmentsPanel />}
+              </div>
+            )}
+
+            {/* Billing */}
+            {tab === "billing" && canSeeBilling && (
+              <div className="space-y-6">
+                <BillingOverviewPanel
+                  refreshKey={billingRefreshKey}
+                  onSelectBill={(id) => {
+                    setActiveBillingId(id);
+                    setTab("billing");
+                  }}
+                />
+
+                {activeBillingId && (
+                  <BillingPaymentPlansPanel
+                    billingId={activeBillingId}
+                    onClose={() => {
+                      setActiveBillingId(null);
+                      setBillingRefreshKey((k) => k + 1);
+                    }}
+                    onUpdated={() => setBillingRefreshKey((k) => k + 1)}
+                  />
+                )}
+              </div>
+            )}
+
             {tab === "patients" && <PatientRecordsPanel />}
-
             {tab === "staff" && isAdmin && <StaffHRPanel />}
-
             {tab === "procedures" && isAdmin && <ProceduresPanel />}
 
             <div className="text-center text-xs text-slate-400 py-6">
