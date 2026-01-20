@@ -1,46 +1,84 @@
 import { db } from "../firebase/firebase";
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  serverTimestamp, 
-  Timestamp, 
-  collection, 
-  addDoc,
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  serverTimestamp,
+  Timestamp,
+  collection,
   query,
   where,
-  getDocs
+  getDocs,
 } from "firebase/firestore";
-import { BillingRecord, BillingTransaction, BillingInstallment, BillingItem } from "../types/billing";
-import { billingRecordSchema } from "../validations/billing";
-import { z } from "zod";
+
+import {
+  BillingRecord,
+  BillingInstallment,
+  BillingItem,
+} from "../types/billing";
 
 const BILLING_COLLECTION = "billing_records";
 const APPOINTMENTS_COLLECTION = "appointments";
 
+/**
+ * Items that do NOT count toward remaining balance:
+ * - paid / void / waived
+ * Everything else counts (unpaid + plan + pending, etc.)
+ */
+function isExcludedFromBalance(status: any) {
+  const s = String(status || "").toLowerCase();
+  return s === "paid" || s === "void" || s === "waived";
+}
+
+function computeFromItems(items: BillingItem[], fallbackTotal = 0) {
+  const hasItems = Array.isArray(items) && items.length > 0;
+
+  const totalAmount = hasItems
+    ? items.reduce((sum, it: any) => sum + Number(it?.price || 0), 0)
+    : Number(fallbackTotal || 0);
+
+  const remainingBalance = hasItems
+    ? items
+        .filter((it: any) => !isExcludedFromBalance(it?.status))
+        .reduce((sum, it: any) => sum + Number(it?.price || 0), 0)
+    : Number(fallbackTotal || 0);
+
+  const status =
+    remainingBalance <= 0
+      ? "paid"
+      : remainingBalance < totalAmount
+        ? "partial"
+        : "unpaid";
+
+  return { totalAmount, remainingBalance, status } as const;
+}
+
 export async function createBillingRecord(
-  appointmentId: string, 
-  patientId: string, 
+  appointmentId: string,
+  patientId: string,
   totalAmount: number,
   items: BillingItem[] = []
 ) {
   try {
-    const id = appointmentId; // We force 1-to-1 mapping
+    const id = appointmentId; // force 1-to-1 mapping
     const docRef = doc(db, BILLING_COLLECTION, id);
-    
+
     // Check if exists to avoid overwrite
     const snap = await getDoc(docRef);
     if (snap.exists()) return { success: false, error: "Billing record already exists" };
 
-    const newRecord: Partial<BillingRecord> & { createdAt: any, updatedAt: any } = {
+    // ✅ compute totals from items if items are provided
+    const computed = computeFromItems(items, totalAmount);
+
+    const newRecord: Partial<BillingRecord> & { createdAt: any; updatedAt: any } = {
       id,
       appointmentId,
       patientId,
-      totalAmount,
-      remainingBalance: totalAmount,
-      status: totalAmount === 0 ? "paid" : "unpaid",
-      items, // Save the itemized list
+      totalAmount: computed.totalAmount,
+      remainingBalance: computed.remainingBalance,
+      status: computed.status,
+      items, // Save itemized list
       paymentPlan: { type: "full", installments: [] },
       transactions: [],
       createdAt: serverTimestamp(),
@@ -66,26 +104,44 @@ export async function getBillingDetails(appointmentId: string) {
 
     // --- SHIM / FALLBACK ---
     // If no billing record exists, check the appointment.
-    // If appointment is completed with a totalBill, we generate a virtual record.
+    // If appointment is completed with a totalBill, generate a virtual record.
     const appRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
     const appSnap = await getDoc(appRef);
 
     if (appSnap.exists()) {
-      const appData = appSnap.data();
-      // If it has treatment data but no billing record, show a virtual one
+      const appData: any = appSnap.data();
+
       if (appData.treatment?.totalBill !== undefined) {
+        const itemsFromAppointment: BillingItem[] = Array.isArray(appData.treatment?.items)
+          ? appData.treatment.items
+          : [];
+
+        // ✅ compute totals from items if available, else fallback to totalBill/paymentStatus
+        const computed = itemsFromAppointment.length
+          ? computeFromItems(itemsFromAppointment, Number(appData.treatment.totalBill || 0))
+          : {
+              totalAmount: Number(appData.treatment.totalBill || 0),
+              remainingBalance: appData.paymentStatus === "paid" ? 0 : Number(appData.treatment.totalBill || 0),
+              status: appData.paymentStatus === "paid" ? "paid" : "unpaid",
+            };
+
         const virtualRecord: BillingRecord = {
           id: appointmentId,
           appointmentId,
           patientId: appData.patientId,
-          totalAmount: appData.treatment.totalBill,
-          remainingBalance: appData.paymentStatus === 'paid' ? 0 : appData.treatment.totalBill,
-          status: appData.paymentStatus === 'paid' ? 'paid' : 'unpaid',
-          paymentPlan: { type: 'full', installments: [] },
+          totalAmount: computed.totalAmount,
+          remainingBalance: computed.remainingBalance,
+          status: computed.status,
+
+          // ✅ required field in BillingRecord
+          items: itemsFromAppointment,
+
+          paymentPlan: { type: "full", installments: [] },
           transactions: [],
           createdAt: appData.createdAt,
-          updatedAt: appData.createdAt
+          updatedAt: appData.createdAt,
         };
+
         return { success: true, data: virtualRecord, isVirtual: true };
       }
     }
@@ -98,53 +154,132 @@ export async function getBillingDetails(appointmentId: string) {
 }
 
 export async function processPayment(
-  appointmentId: string, 
-  amount: number, 
-  method: string, 
-  staffId?: string
+  appointmentId: string,
+  amount: number,
+  method: string,
+  staffId?: string,
+  itemIds: string[] = []
 ) {
   try {
     const docRef = doc(db, BILLING_COLLECTION, appointmentId);
     const snap = await getDoc(docRef);
 
     if (!snap.exists()) {
-      // If payment is attempted on a virtual record, we must materialize it first!
-      // This requires fetching the appointment first to get the total.
-      // For now, assume creation happens at treatment completion.
       return { success: false, error: "Billing record not found. Finalize treatment first." };
     }
 
     const current = snap.data() as BillingRecord;
-    
-    if (amount <= 0) return { success: false, error: "Invalid amount" };
-    if (current.status === "paid" && current.remainingBalance <= 0) {
-      return { success: false, error: "Already fully paid" };
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { success: false, error: "Invalid amount" };
     }
 
-    const newBalance = Math.max(0, current.remainingBalance - amount);
-    const newStatus = newBalance === 0 ? "paid" : "partial";
+    const hasItems = Array.isArray(current.items) && current.items.length > 0;
+
+    const isExcluded = (status: any) => {
+      const s = String(status || "").toLowerCase();
+      return s === "paid" || s === "void" || s === "waived";
+    };
+
+    // --- ITEM-BASED PAYMENT MODE ---
+    if (hasItems && Array.isArray(itemIds) && itemIds.length > 0) {
+      // 1) Only allow paying items that are not excluded
+      const payableTargets = current.items.filter((it: any) => itemIds.includes(it.id));
+      if (payableTargets.length === 0) {
+        return { success: false, error: "Selected items not found" };
+      }
+
+      const alreadyExcluded = payableTargets.every((it: any) => isExcluded(it.status));
+      if (alreadyExcluded) {
+        return { success: false, error: "Selected items are already settled" };
+      }
+
+      // 2) Mark selected items as paid
+      const updatedItems = current.items.map((it: any) => {
+        if (itemIds.includes(it.id) && !isExcluded(it.status)) {
+          return { ...it, status: "paid" };
+        }
+        return it;
+      });
+
+      // 3) Recompute totals from items
+      const totalAmount = updatedItems.reduce((sum: number, it: any) => sum + Number(it.price || 0), 0);
+
+      const remainingBalance = updatedItems
+        .filter((it: any) => !isExcluded(it.status))
+        .reduce((sum: number, it: any) => sum + Number(it.price || 0), 0);
+
+      const status =
+        remainingBalance <= 0
+          ? "paid"
+          : remainingBalance < totalAmount
+            ? "partial"
+            : "unpaid";
+
+      // 4) Add transaction (store itemIds for audit trail)
+      const transaction: any = {
+        id: crypto.randomUUID(),
+        amount,
+        method,
+        date: Timestamp.now(),
+        recordedBy: staffId || "system",
+        itemIds,
+        mode: "item",
+      };
+
+      await updateDoc(docRef, {
+        items: updatedItems,
+        totalAmount,
+        remainingBalance,
+        status,
+        transactions: [...(current.transactions || []), transaction],
+        updatedAt: serverTimestamp(),
+      });
+
+      // 5) Keep appointment in sync
+      const appRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
+      await updateDoc(appRef, {
+        paymentStatus: status,
+        paymentMethod: method,
+        paymentDate: serverTimestamp(),
+      });
+
+      return { success: true };
+    }
+
+    // --- LEGACY AMOUNT-BASED MODE (no itemIds) ---
+    // This keeps old flows working even if items are missing.
+    const newBalance = Math.max(0, Number(current.remainingBalance || 0) - Number(amount || 0));
+    const totalAmount = Number(current.totalAmount || 0);
+
+    const status =
+      newBalance <= 0
+        ? "paid"
+        : newBalance < totalAmount
+          ? "partial"
+          : "unpaid";
 
     const transaction: any = {
       id: crypto.randomUUID(),
       amount,
       method,
       date: Timestamp.now(),
-      recordedBy: staffId || "system"
+      recordedBy: staffId || "system",
+      mode: "amount",
     };
 
     await updateDoc(docRef, {
       remainingBalance: newBalance,
-      status: newStatus,
-      transactions: [...current.transactions, transaction],
-      updatedAt: serverTimestamp()
+      status,
+      transactions: [...(current.transactions || []), transaction],
+      updatedAt: serverTimestamp(),
     });
 
-    // Also update the legacy Appointment status for dashboard compatibility
     const appRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
     await updateDoc(appRef, {
-      paymentStatus: newStatus,
-      paymentMethod: method, // Tracks last used method
-      paymentDate: serverTimestamp()
+      paymentStatus: status,
+      paymentMethod: method,
+      paymentDate: serverTimestamp(),
     });
 
     return { success: true };
@@ -154,32 +289,143 @@ export async function processPayment(
   }
 }
 
+export async function payInstallment(
+  appointmentId: string,
+  installmentId: string,
+  method: string,
+  staffId?: string
+) {
+  try {
+    const docRef = doc(db, BILLING_COLLECTION, appointmentId);
+    const snap = await getDoc(docRef);
+
+    if (!snap.exists()) {
+      return { success: false, error: "Billing record not found" };
+    }
+
+    const current = snap.data() as BillingRecord;
+
+    const installments: any[] = Array.isArray(current?.paymentPlan?.installments)
+      ? [...current.paymentPlan.installments]
+      : [];
+
+    if (installments.length === 0) {
+      return { success: false, error: "No installment plan found" };
+    }
+
+    const idx = installments.findIndex((x) => String(x?.id) === String(installmentId));
+    if (idx === -1) {
+      return { success: false, error: "Installment not found" };
+    }
+
+    const inst = installments[idx];
+    const instStatus = String(inst?.status || "").toLowerCase();
+
+    if (instStatus === "paid") {
+      return { success: false, error: "Installment already paid" };
+    }
+
+    const amount = Number(inst?.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { success: false, error: "Invalid installment amount" };
+    }
+
+    // Mark installment as paid
+    installments[idx] = {
+      ...inst,
+      status: "paid",
+      paidAt: Timestamp.now(), // 
+      paidBy: staffId || "system",
+      paidMethod: method,
+    };
+
+    // Reduce remaining balance (simple + effective)
+    const prevRemaining = Number(current.remainingBalance || 0);
+    const newRemaining = Math.max(0, prevRemaining - amount);
+
+    const totalAmount = Number(current.totalAmount || 0);
+    const newStatus =
+      newRemaining <= 0 ? "paid" : newRemaining < totalAmount ? "partial" : "unpaid";
+
+    const transaction: any = {
+      id: crypto.randomUUID(),
+      amount,
+      method,
+      date: Timestamp.now(),
+      recordedBy: staffId || "system",
+      mode: "installment",
+      installmentId,
+      dueDate: inst?.dueDate || null,
+    };
+
+    await updateDoc(docRef, {
+      paymentPlan: {
+        ...(current.paymentPlan || {}),
+        installments,
+      },
+      remainingBalance: newRemaining,
+      status: newStatus,
+      transactions: [...(current.transactions || []), transaction],
+      updatedAt: serverTimestamp(),
+    });
+
+    // Keep appointment in sync (optional but recommended)
+    const appRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
+    await updateDoc(appRef, {
+      paymentStatus: newStatus,
+      paymentMethod: method,
+      paymentDate: serverTimestamp(),
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error paying installment:", error);
+    return { success: false, error: "Failed to pay installment" };
+  }
+}
+
 export async function setupPaymentPlan(
-  appointmentId: string, 
-  installments: BillingInstallment[], 
+  appointmentId: string,
+  installments: BillingInstallment[],
   selectedItemIds?: string[]
 ) {
   try {
     const docRef = doc(db, BILLING_COLLECTION, appointmentId);
     const snap = await getDoc(docRef);
-    
+
     if (!snap.exists()) return { success: false, error: "Record not found" };
     const current = snap.data() as BillingRecord;
 
-    // If items were selected, update their status to 'plan'
-    let updatedItems = current.items || [];
-    if (selectedItemIds && selectedItemIds.length > 0) {
-      updatedItems = updatedItems.map(item => ({
+    // 1) Update item statuses to "plan" (only those selected)
+    let updatedItems: BillingItem[] = Array.isArray(current.items) ? current.items : [];
+
+    if (selectedItemIds && selectedItemIds.length > 0 && updatedItems.length > 0) {
+      updatedItems = updatedItems.map((item: any) => ({
         ...item,
-        status: selectedItemIds.includes(item.id) ? "plan" : item.status
+        status: selectedItemIds.includes(item.id) ? "plan" : item.status,
       }));
     }
-    
+
+    // 2) Recompute totals from items (authoritative)
+    const computed = updatedItems.length
+      ? computeFromItems(updatedItems, Number(current.totalAmount || 0))
+      : {
+          totalAmount: Number(current.totalAmount || 0),
+          remainingBalance: Number(current.remainingBalance || 0),
+          status: current.status || "unpaid",
+        };
+
+    // 3) Persist plan + items + recomputed balances
     await updateDoc(docRef, {
-      "paymentPlan.type": "installments",
-      "paymentPlan.installments": installments,
+      paymentPlan: {
+        type: "installments",
+        installments,
+      },
       items: updatedItems,
-      updatedAt: serverTimestamp()
+      totalAmount: computed.totalAmount,
+      remainingBalance: computed.remainingBalance,
+      status: computed.status,
+      updatedAt: serverTimestamp(),
     });
 
     return { success: true };
@@ -189,19 +435,21 @@ export async function setupPaymentPlan(
   }
 }
 
-export async function getAllBillingRecords(statusFilter: 'paid' | 'unpaid' | 'partial' | 'all' = 'all') {
+export async function getAllBillingRecords(
+  statusFilter: "paid" | "unpaid" | "partial" | "all" = "all"
+) {
   try {
     const billingRef = collection(db, BILLING_COLLECTION);
-    let q = query(billingRef); // Default: All
+    let q = query(billingRef);
 
-    if (statusFilter !== 'all') {
+    if (statusFilter !== "all") {
       q = query(billingRef, where("status", "==", statusFilter));
     }
 
     const snapshot = await getDocs(q);
-    const bills = snapshot.docs.map(doc => doc.data() as BillingRecord);
-    
-    // Sort by date manually if index is missing (createdAt descending)
+    const bills = snapshot.docs.map((d) => d.data() as BillingRecord);
+
+    // Sort by createdAt desc
     bills.sort((a, b) => {
       const timeA = (a.createdAt as any)?.seconds || 0;
       const timeB = (b.createdAt as any)?.seconds || 0;

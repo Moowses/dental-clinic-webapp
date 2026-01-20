@@ -324,7 +324,7 @@ export default function BillingOverviewPanel({
           <p className="text-sm text-slate-500 italic">No billing records found.</p>
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="min-w-[980px] w-full text-left">
+            <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr className="text-xs font-extrabold text-slate-600">
                   <th className="p-3">Patient</th>
@@ -346,11 +346,11 @@ export default function BillingOverviewPanel({
                       <div className="font-extrabold text-slate-900">{r.patientName}</div>
                       <div className="text-xs text-slate-500">{r.patientId.slice(0, 10)}...</div>
                     </td>
-                    <td className="p-3 text-slate-700 font-bold">{r.billsCount}</td>
-                    <td className="p-3 text-slate-700 font-bold">{r.paidBills}</td>
-                    <td className="p-3 text-slate-700 font-bold">{r.unpaidBills}</td>
-                    <td className="p-3 text-slate-900 font-extrabold">₱ {money(r.remainingBalance)}</td>
-                    <td className="p-3 text-slate-700 font-bold">₱ {money(r.totalAmount)}</td>
+                    <td className="p-3 text-slate-700 font-bold whitespace-nowrap">{r.billsCount}</td>
+                    <td className="p-3 text-slate-700 font-bold whitespace-nowrap">{r.paidBills}</td>
+                    <td className="p-3 text-slate-700 font-bold whitespace-nowrap">{r.unpaidBills}</td>
+                    <td className="p-3 text-slate-700 font-bold whitespace-nowrap">₱ {money(r.remainingBalance)}</td>
+                    <td className="p-3 text-slate-700 font-bold whitespace-nowrap">₱ {money(r.totalAmount)}</td>
                     <td className="p-3">
                       <span
                         className={`text-xs font-extrabold px-3 py-1 rounded-full ${

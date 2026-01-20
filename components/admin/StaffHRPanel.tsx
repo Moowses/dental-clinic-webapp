@@ -43,7 +43,7 @@ export default function StaffHRPanel() {
   }, [user]);
 
   return (
-    <Card title="Staff HR" subtitle="Admin • Create dentist / front desk / admin accounts">
+    <Card title="Add User" subtitle="Admin • Create dentist / front desk / admin accounts">
       <form action={formAction} className="space-y-3">
         <input type="hidden" name="idToken" value={token} />
 

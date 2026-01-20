@@ -4,8 +4,17 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   getBillingDetailsAction,
   createPaymentPlanAction,
+  payInstallmentAction,
 } from "@/app/actions/billing-actions";
+
 import { recordPaymentAction } from "@/app/actions/appointment-actions";
+
+type BillableItem = {
+  id: string;
+  name: string;
+  price: number;
+  status: "unpaid" | "paid" | "void" | "waived" | string;
+};
 
 type AnyBill = {
   id: string;
@@ -18,6 +27,7 @@ type AnyBill = {
   updatedAt?: any;
   paymentPlan?: any;
   transactions?: Array<{ id: string; amount: number; date: any; method?: string }>;
+  items?: BillableItem[]; //
 };
 
 function money(n: number) {
@@ -109,6 +119,9 @@ export default function BillingPaymentPlansPanel({
 
   const [customMonths, setCustomMonths] = useState<string>("");
 
+  // ✅ NEW: billable selection
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -116,10 +129,13 @@ export default function BillingPaymentPlansPanel({
     try {
       const res = await getBillingDetailsAction(billingId);
       if (!res?.success || !res.data) throw new Error(res?.error || "Bill not found.");
+
       setBill(res.data as AnyBill);
+      setSelectedItems([]); // ✅ reset when loading new bill (matches backend-test)
     } catch (e: any) {
       setErr(e?.message || "Failed to load bill.");
       setBill(null);
+      setSelectedItems([]);
     } finally {
       setLoading(false);
     }
@@ -130,7 +146,24 @@ export default function BillingPaymentPlansPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [billingId]);
 
-  const numbers = useMemo(() => (bill ? getBillingNumbers(bill) : null), [bill]);
+  const numbers = useMemo(() => {
+  if (!bill) return null;
+  const list = Array.isArray(bill.items) ? bill.items : [];
+  const total = list.length
+    ? list.reduce((s, i) => s + Number(i.price || 0), 0)
+    : Number(bill.totalAmount || 0);
+
+  const remaining = list.length
+    ? list
+        .filter((i) => !["paid", "void", "waived"].includes(String(i.status).toLowerCase()))
+        .reduce((s, i) => s + Number(i.price || 0), 0)
+    : Number(bill.remainingBalance || 0);
+
+  const status =
+    remaining <= 0 ? "paid" : remaining < total ? "partial" : "unpaid";
+
+  return { total, remaining, status } as const;
+}, [bill]);
 
   const txSorted = useMemo(() => {
     const t = bill?.transactions || [];
@@ -141,6 +174,20 @@ export default function BillingPaymentPlansPanel({
     });
   }, [bill]);
 
+  const items: BillableItem[] = Array.isArray(bill?.items) ? (bill!.items as BillableItem[]) : [];
+
+  const selectedTotal = useMemo(() => {
+    if (!items.length) return 0;
+    return items
+      .filter((i) => selectedItems.includes(i.id))
+      .reduce((s, x) => s + Number(x.price || 0), 0);
+  }, [items, selectedItems]);
+  useEffect(() => {
+  if (selectedItems.length > 0) {
+    setPayAmount(String(selectedTotal));
+  }
+}, [selectedItems, selectedTotal]);
+
   async function pay(full: boolean) {
     if (!bill || !numbers) return;
 
@@ -149,12 +196,17 @@ export default function BillingPaymentPlansPanel({
       setErr("Enter a valid payment amount.");
       return;
     }
+    if (!full && selectedItems.length > 0 && Number(amt) !== Number(selectedTotal)) {
+    setErr("Amount must match selected items total.");
+    return;
+  }
 
     setBusy(true);
     setErr(null);
 
     try {
-      const res = await recordPaymentAction(bill.appointmentId, method, amt);
+      const res = await recordPaymentAction(bill.appointmentId, method, amt, full ? [] : selectedItems);
+
       if (!res?.success) throw new Error(res?.error || "Payment failed.");
       setPayAmount("");
       await load();
@@ -166,6 +218,27 @@ export default function BillingPaymentPlansPanel({
     }
   }
 
+  async function payOneInstallment(installmentId: string) {
+  if (!bill) return;
+
+  setBusy(true);
+  setErr(null);
+
+  try {
+    const res = await payInstallmentAction(bill.appointmentId, installmentId, method);
+    if (!res?.success) throw new Error(res?.error || "Failed to pay installment.");
+
+    await load();
+    onUpdated?.();
+  } catch (e: any) {
+    setErr(e?.message || "Failed to pay installment.");
+  } finally {
+    setBusy(false);
+  }
+}
+
+
+ 
   async function createPlan(months: number) {
     if (!bill) return;
 
@@ -178,7 +251,7 @@ export default function BillingPaymentPlansPanel({
     setErr(null);
 
     try {
-      const res = await createPaymentPlanAction(bill.appointmentId, months);
+      const res = await createPaymentPlanAction(bill.appointmentId, months, selectedItems);
       if (!res?.success) throw new Error(res?.error || "Failed to create plan.");
       setCustomMonths("");
       await load();
@@ -258,6 +331,65 @@ export default function BillingPaymentPlansPanel({
                 </p>
               </div>
             </div>
+
+            {items.length > 0 && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-extrabold text-slate-900">Billable Items</p>
+                  <p className="text-xs text-slate-500">
+                    Selected total:{" "}
+                    <span className="font-mono font-extrabold text-slate-900">
+                      ₱ {money(selectedTotal)}
+                    </span>
+                  </p>
+                </div>
+
+                <div className="mt-3 space-y-1">
+                  {items.map((item) => {
+                    const s = String(item.status || "").toLowerCase();
+                    const disabled = ["paid", "void", "waived", "plan"].includes(s);
+                    const checked = selectedItems.includes(item.id);
+
+                    return (
+                      <label
+                        key={item.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 hover:bg-slate-50 cursor-pointer"
+                      >
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={(e) => {
+                              setSelectedItems((prev) => {
+                                if (e.target.checked) return prev.includes(item.id) ? prev : [...prev, item.id];
+                                return prev.filter((x) => x !== item.id);
+                              });
+                            }}
+                          />
+                          <div className={disabled ? "opacity-60" : ""}>
+                            <div className={`text-sm font-extrabold ${disabled ? "line-through text-slate-500" : "text-slate-900"}`}>
+                              {item.name}
+                            </div>
+                            <div className="text-[10px] font-extrabold uppercase text-slate-500">
+                              {String(item.status)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-sm font-extrabold text-slate-900 font-mono">
+                          ₱ {money(Number(item.price || 0))}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <p className="mt-2 text-[11px] text-slate-500">
+                  If no items are selected, the plan will apply to the full remaining balance.
+                </p>
+              </div>
+            )}
 
             {numbers.remaining > 0 && (
               <div className="grid gap-4 lg:grid-cols-2">
@@ -345,6 +477,12 @@ export default function BillingPaymentPlansPanel({
                     </div>
                   </div>
 
+                  <p className="mt-3 text-[11px] text-slate-500">
+                    {selectedItems.length > 0
+                      ? `Splitting selected items total: ₱ ${money(selectedTotal)}`
+                      : "Splitting full remaining balance."}
+                  </p>
+
                   {installmentSchedule.length > 0 && (
                     <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
                       <p className="text-xs font-extrabold text-slate-700 uppercase">
@@ -352,30 +490,52 @@ export default function BillingPaymentPlansPanel({
                       </p>
 
                       <div className="mt-2 space-y-2">
-                        {installmentSchedule.map((i: any, idx: number) => (
-                          <div
-                            key={idx}
-                            className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3"
-                          >
-                            <div>
-                              <div className="text-sm font-extrabold text-slate-900">
-                                Due: {i.dueDate || "—"}
-                              </div>
-                              <div
-                                className={`mt-1 inline-flex text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                                  String(i.status || "").toLowerCase() === "paid"
-                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                    : "bg-amber-50 text-amber-700 border border-amber-200"
-                                }`}
-                              >
-                                {String(i.status || "unpaid").toUpperCase()}
-                              </div>
+                     {installmentSchedule.map((i: any, idx: number) => {
+                      const s = String(i.status || "").toLowerCase();
+                      const isPaid = s === "paid";
+                      const canPay = !isPaid && !!i.id;
+
+                      return (
+                        <div
+                          key={i.id || idx}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3"
+                        >
+                          <div>
+                            <div className="text-sm font-extrabold text-slate-900">
+                              Due: {i.dueDate || "—"}
                             </div>
+
+                            <div
+                              className={`mt-1 inline-flex text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                                isPaid
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : "bg-amber-50 text-amber-700 border border-amber-200"
+                              }`}
+                            >
+                              {String(i.status || "pending").toUpperCase()}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
                             <div className="text-sm font-extrabold text-slate-900">
                               ₱ {money(Number(i.amount || 0))}
                             </div>
+
+                            <button
+                              disabled={busy || !canPay}
+                              onClick={() => payOneInstallment(String(i.id))}
+                              className={`rounded-xl px-4 py-2 text-xs font-extrabold border ${
+                                isPaid
+                                  ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                              } disabled:opacity-60`}
+                            >
+                              {isPaid ? "Paid" : "Pay"}
+                            </button>
                           </div>
-                        ))}
+                        </div>
+                      );
+                    })}
                       </div>
                     </div>
                   )}

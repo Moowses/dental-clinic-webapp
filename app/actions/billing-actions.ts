@@ -1,11 +1,10 @@
 import { getUserProfile } from "@/lib/services/user-service";
-import { 
-  getBillingDetails, 
-  setupPaymentPlan 
-} from "@/lib/services/billing-service";
+import { getBillingDetails, setupPaymentPlan } from "@/lib/services/billing-service";
 import { BillingInstallment, BillingRecord } from "@/lib/types/billing";
 
-export async function getBillingDetailsAction(appointmentId: string): Promise<{ success: boolean; data?: BillingRecord; error?: string; isVirtual?: boolean }> {
+export async function getBillingDetailsAction(
+  appointmentId: string
+): Promise<{ success: boolean; data?: BillingRecord; error?: string; isVirtual?: boolean }> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
@@ -13,60 +12,125 @@ export async function getBillingDetailsAction(appointmentId: string): Promise<{ 
   return await getBillingDetails(appointmentId);
 }
 
+type BillableStatus = "unpaid" | "paid" | "plan" | "void" | "waived" | string;
+
+function isExcludedFromBalance(status: BillableStatus) {
+  const s = String(status || "").toLowerCase();
+  return s === "paid" || s === "void" || s === "waived";
+}
+
 export async function createPaymentPlanAction(
-  appointmentId: string, 
+  appointmentId: string,
   months: number,
   selectedItemIds: string[] = []
-) {
+): Promise<{ success: boolean; error?: string }> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
   const profile = await getUserProfile(auth.currentUser.uid);
-  if (!profile.success || !profile.data || profile.data.role === 'client') {
+  if (!profile.success || !profile.data || profile.data.role === "client") {
     return { success: false, error: "Unauthorized: Staff only" };
   }
 
-  // Logic to calculate dates and amounts
+  const safeMonths = Number(months);
+  if (!Number.isFinite(safeMonths) || safeMonths < 1 || safeMonths > 36) {
+    return { success: false, error: "Invalid months. Must be 1–36." };
+  }
+
   const billRes = await getBillingDetails(appointmentId);
   if (!billRes.success || !billRes.data) return { success: false, error: "Bill not found" };
 
-  let planTotal = billRes.data.remainingBalance;
+  const bill = billRes.data;
 
-  // If specific items selected, sum them up
-  if (selectedItemIds.length > 0 && billRes.data.items) {
-    planTotal = billRes.data.items
-      .filter(item => selectedItemIds.includes(item.id))
-      .reduce((sum, item) => sum + item.price, 0);
+  // If no billable items exist, fallback to remainingBalance behavior (legacy)
+  const items = Array.isArray((bill as any).items) ? ((bill as any).items as any[]) : [];
+
+  // Determine which IDs should be planned:
+  // - if selectedItemIds provided: only those
+  // - else: all items that are NOT excluded (unpaid + plan)
+  const eligibleIds =
+    selectedItemIds.length > 0
+      ? selectedItemIds
+      : items
+          .filter((it) => !isExcludedFromBalance(it.status as BillableStatus))
+          .map((it) => it.id);
+
+  // Compute plan total
+  let planTotal = 0;
+
+  if (items.length > 0) {
+    // Sum only the items included in eligibleIds, but ignore excluded statuses
+    planTotal = items
+      .filter((it) => eligibleIds.includes(it.id))
+      .filter((it) => !isExcludedFromBalance(it.status as BillableStatus))
+      .reduce((sum, it) => sum + Number(it.price || 0), 0);
+  } else {
+    // Legacy fallback: use remainingBalance
+    planTotal = Number((bill as any).remainingBalance || 0);
   }
 
-  if (planTotal <= 0) return { success: false, error: "No balance to split" };
+  if (!Number.isFinite(planTotal) || planTotal <= 0) {
+    return { success: false, error: "No balance to split" };
+  }
 
-  const amountPerMonth = Math.floor((planTotal / months) * 100) / 100;
+  // Installments
+  const rawPerMonth = planTotal / safeMonths;
+  const amountPerMonth = Math.floor(rawPerMonth * 100) / 100;
+
   const installments: BillingInstallment[] = [];
-  let currentDate = new Date();
+  let due = new Date();
 
-  for (let i = 0; i < months; i++) {
-    currentDate.setMonth(currentDate.getMonth() + 1);
+  for (let i = 0; i < safeMonths; i++) {
+    due = new Date(due);
+    due.setMonth(due.getMonth() + 1);
+
+    const amt =
+      i === safeMonths - 1
+        ? Number((planTotal - amountPerMonth * (safeMonths - 1)).toFixed(2))
+        : amountPerMonth;
+
     installments.push({
       id: crypto.randomUUID(),
-      dueDate: currentDate.toISOString().split('T')[0],
-      amount: i === months - 1 ? (planTotal - (amountPerMonth * (months - 1))) : amountPerMonth, // Handle rounding remainder
-      status: 'pending'
+      dueDate: due.toISOString().split("T")[0],
+      amount: amt,
+      status: "pending",
     });
   }
 
-  return await setupPaymentPlan(appointmentId, installments, selectedItemIds);
+  // IMPORTANT:
+  // setupPaymentPlan currently accepts only (appointmentId, installments, selectedItemIds)
+  // We pass the computed IDs (eligibleIds) so the service can mark those items as "plan".
+  return await setupPaymentPlan(appointmentId, installments, eligibleIds);
 }
 
-export async function getAllBillingAction(filter: 'paid' | 'unpaid' | 'partial' | 'all' = 'all'): Promise<{ success: boolean; data?: BillingRecord[]; error?: string }> {
+export async function getAllBillingAction(
+  filter: "paid" | "unpaid" | "partial" | "all" = "all"
+): Promise<{ success: boolean; data?: BillingRecord[]; error?: string }> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
   const profile = await getUserProfile(auth.currentUser.uid);
-  if (!profile.success || !profile.data || profile.data.role === 'client') {
+  if (!profile.success || !profile.data || profile.data.role === "client") {
     return { success: false, error: "Unauthorized: Staff only" };
   }
 
   const { getAllBillingRecords } = await import("@/lib/services/billing-service");
   return await getAllBillingRecords(filter);
+}
+
+export async function payInstallmentAction(
+  appointmentId: string,
+  installmentId: string,
+  method: string
+) {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+
+  const profile = await getUserProfile(auth.currentUser.uid);
+  if (!profile.success || !profile.data || profile.data.role === "client") {
+    return { success: false, error: "Unauthorized: Staff only" };
+  }
+
+  const { payInstallment } = await import("@/lib/services/billing-service");
+  return await payInstallment(appointmentId, installmentId, method, auth.currentUser.uid);
 }

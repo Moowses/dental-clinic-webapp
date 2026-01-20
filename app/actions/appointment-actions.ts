@@ -285,7 +285,8 @@ export async function updateAppointmentStatusAction(
 export async function recordPaymentAction(
   appointmentId: string,
   method: string,
-  amount?: number
+  amount: number,
+  itemIds: string[] = []
 ) {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
@@ -324,10 +325,11 @@ export async function recordPaymentAction(
      }
   }
 
-  return await processPayment(
-    appointmentId,
-    paymentAmount,
-    parsed.data.method,
-    auth.currentUser.uid
-  );
+ return await processPayment(
+  appointmentId,
+  amount,
+  method,
+  auth.currentUser.uid,
+  itemIds
+);
 }

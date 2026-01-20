@@ -131,7 +131,7 @@ export default function AdminDashboardPage() {
               </div>
               <div className="min-w-0">
                 <p className="font-extrabold text-slate-900 truncate">
-                  Staff Portal
+                  Management Portal
                 </p>
                 <p className="text-xs text-slate-500 truncate">{user.email}</p>
               </div>
@@ -219,7 +219,7 @@ export default function AdminDashboardPage() {
                     }`}
                     onClick={() => setTab("staff")}
                   >
-                    Staff HR
+                    Management
                   </button>
 
                   <button
@@ -279,35 +279,7 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              <div className="bg-white p-5">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                    <p className="text-xs font-bold text-slate-500">Session</p>
-                    <div className="mt-2 text-xl font-extrabold text-slate-900">
-                      Active
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">Signed in</p>
-                  </div>
-
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                    <p className="text-xs font-bold text-slate-500">Role</p>
-                    <div className="mt-2 text-xl font-extrabold text-slate-900">
-                      {(role || "staff").toUpperCase()}
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">Clinic staff</p>
-                  </div>
-
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-                    <p className="text-xs font-bold text-slate-500">Quick</p>
-                    <div className="mt-2 text-xl font-extrabold text-slate-900">
-                      Tools
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Appointments, billing &amp; records
-                    </p>
-                  </div>
-                </div>
-              </div>
+             
             </section>
 
             {/* Dashboard */}
@@ -360,28 +332,41 @@ export default function AdminDashboardPage() {
             )}
 
             {/* Billing */}
-            {tab === "billing" && canSeeBilling && (
-              <div className="space-y-6">
-                <BillingOverviewPanel
-                  refreshKey={billingRefreshKey}
-                  onSelectBill={(id) => {
-                    setActiveBillingId(id);
-                    setTab("billing");
-                  }}
-                />
+          
+          {tab === "billing" && canSeeBilling && (
+            <div className="space-y-6">
+              {/* TOP: Overview */}
+              <BillingOverviewPanel
+                refreshKey={billingRefreshKey}
+                onSelectBill={(id) => {
+                  setActiveBillingId(id);
+                  setTab("billing");
+                }}
+              />
 
-                {activeBillingId && (
-                  <BillingPaymentPlansPanel
-                    billingId={activeBillingId}
-                    onClose={() => {
-                      setActiveBillingId(null);
-                      setBillingRefreshKey((k) => k + 1);
-                    }}
-                    onUpdated={() => setBillingRefreshKey((k) => k + 1)}
-                  />
-                )}
-              </div>
-            )}
+              {/* BOTTOM: Details (always visible) */}
+              {activeBillingId ? (
+                <BillingPaymentPlansPanel
+                  billingId={activeBillingId}
+                  onClose={() => {
+                    setActiveBillingId(null);
+                    setBillingRefreshKey((k) => k + 1);
+                  }}
+                  onUpdated={() => setBillingRefreshKey((k) => k + 1)}
+                />
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
+                  <p className="text-lg font-extrabold text-slate-900">
+                    Select a bill to manage payments.
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Choose items to mark as paid or create an installment plan.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
 
             {tab === "patients" && <PatientRecordsPanel />}
             {tab === "staff" && isAdmin && <StaffHRPanel />}
