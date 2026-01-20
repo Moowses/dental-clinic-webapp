@@ -12,14 +12,19 @@ import {
   where,
   getDocs
 } from "firebase/firestore";
-import { BillingRecord, BillingTransaction, BillingInstallment } from "../types/billing";
+import { BillingRecord, BillingTransaction, BillingInstallment, BillingItem } from "../types/billing";
 import { billingRecordSchema } from "../validations/billing";
 import { z } from "zod";
 
 const BILLING_COLLECTION = "billing_records";
 const APPOINTMENTS_COLLECTION = "appointments";
 
-export async function createBillingRecord(appointmentId: string, patientId: string, totalAmount: number) {
+export async function createBillingRecord(
+  appointmentId: string, 
+  patientId: string, 
+  totalAmount: number,
+  items: BillingItem[] = []
+) {
   try {
     const id = appointmentId; // We force 1-to-1 mapping
     const docRef = doc(db, BILLING_COLLECTION, id);
@@ -35,6 +40,7 @@ export async function createBillingRecord(appointmentId: string, patientId: stri
       totalAmount,
       remainingBalance: totalAmount,
       status: totalAmount === 0 ? "paid" : "unpaid",
+      items, // Save the itemized list
       paymentPlan: { type: "full", installments: [] },
       transactions: [],
       createdAt: serverTimestamp(),
@@ -148,16 +154,31 @@ export async function processPayment(
   }
 }
 
-export async function setupPaymentPlan(appointmentId: string, installments: BillingInstallment[]) {
+export async function setupPaymentPlan(
+  appointmentId: string, 
+  installments: BillingInstallment[], 
+  selectedItemIds?: string[]
+) {
   try {
     const docRef = doc(db, BILLING_COLLECTION, appointmentId);
+    const snap = await getDoc(docRef);
     
-    // Validate total matches remaining balance? 
-    // Usually good practice, but for flexibility we just save the plan.
+    if (!snap.exists()) return { success: false, error: "Record not found" };
+    const current = snap.data() as BillingRecord;
+
+    // If items were selected, update their status to 'plan'
+    let updatedItems = current.items || [];
+    if (selectedItemIds && selectedItemIds.length > 0) {
+      updatedItems = updatedItems.map(item => ({
+        ...item,
+        status: selectedItemIds.includes(item.id) ? "plan" : item.status
+      }));
+    }
     
     await updateDoc(docRef, {
       "paymentPlan.type": "installments",
       "paymentPlan.installments": installments,
+      items: updatedItems,
       updatedAt: serverTimestamp()
     });
 

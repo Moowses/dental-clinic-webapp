@@ -85,8 +85,15 @@ export async function updateAppointmentStatus(appointmentId: string, status: App
   }
 }
 
+import { getClinicSettings } from "./clinic-service";
+
 export async function getTakenSlots(date: string) {
   try {
+    // 1. Get Clinic Capacity
+    const settingsRes = await getClinicSettings();
+    const capacity = settingsRes.data?.maxConcurrentPatients || 1;
+
+    // 2. Fetch all active appointments for the day
     const q = query(
       collection(db, APPOINTMENTS_COLLECTION),
       where("date", "==", date),
@@ -94,9 +101,20 @@ export async function getTakenSlots(date: string) {
     );
     
     const snap = await getDocs(q);
-    const times = snap.docs.map(doc => (doc.data() as Appointment).time);
+    const appointments = snap.docs.map(doc => (doc.data() as Appointment));
     
-    return { success: true, data: times };
+    // 3. Count slots
+    const slotCounts: Record<string, number> = {};
+    appointments.forEach(app => {
+      slotCounts[app.time] = (slotCounts[app.time] || 0) + 1;
+    });
+
+    // 4. Return ONLY times that are full
+    const takenTimes = Object.entries(slotCounts)
+      .filter(([_, count]) => count >= capacity)
+      .map(([time]) => time);
+    
+    return { success: true, data: takenTimes };
   } catch (error) {
     console.error("Error fetching taken slots:", error);
     return { success: false, error: "Failed to check availability" };

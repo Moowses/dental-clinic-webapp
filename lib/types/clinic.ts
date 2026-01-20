@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { clinicSettingsSchema } from "../validations/clinic";
+
 export interface DentalProcedure {
   id: string;
   code: string; // e.g. "D1110"
@@ -6,3 +9,5 @@ export interface DentalProcedure {
   description?: string;
   isActive: boolean;
 }
+
+export type ClinicSettings = z.infer<typeof clinicSettingsSchema>;

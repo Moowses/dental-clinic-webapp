@@ -62,11 +62,21 @@ export async function completeTreatmentAction(
   // 2. Fetch appointment to get totalBill (calculated by saveTreatmentRecord) and patientId
   const appResult = await getAppointmentById(appointmentId);
   if (appResult.success && appResult.data && appResult.data.treatment) {
+    
+    // Map treatment procedures to billing items
+    const billingItems = appResult.data.treatment.procedures.map(p => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      status: "unpaid" as const
+    }));
+
     // 3. Create Billing Record
     await createBillingRecord(
       appointmentId, 
       appResult.data.patientId, 
-      appResult.data.treatment.totalBill
+      appResult.data.treatment.totalBill,
+      billingItems
     );
   }
 

@@ -7,3 +7,25 @@ export const procedureSchema = z.object({
   description: z.string().optional(),
   isActive: z.boolean().default(true),
 });
+
+const dayHoursSchema = z.object({
+  open: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid time format"),
+  close: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid time format"),
+  isOpen: z.boolean(),
+});
+
+export const clinicSettingsSchema = z.object({
+  maxConcurrentPatients: z.number().min(1).default(1),
+  operatingHours: z.object({
+    monday: dayHoursSchema,
+    tuesday: dayHoursSchema,
+    wednesday: dayHoursSchema,
+    thursday: dayHoursSchema,
+    friday: dayHoursSchema,
+    saturday: dayHoursSchema,
+    sunday: dayHoursSchema,
+  })
+});
+
+export type ClinicSettings = z.infer<typeof clinicSettingsSchema>;
+

@@ -155,7 +155,10 @@ function TreatmentModal({
     procedures: DentalProcedure[];
     inventory: InventoryItem[];
   } | null>(null);
-  const [selectedProcs, setSelectedProcs] = useState<string[]>([]);
+  
+  // Custom Procedure List state
+  const [procList, setProcList] = useState<{ id: string; name: string; price: number; isCustom: boolean }[]>([]);
+  
   const [usedInv, setUsedInv] = useState<{ [id: string]: number }>({});
   const [notes, setNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -166,17 +169,32 @@ function TreatmentModal({
     });
   }, []);
 
+  const addProcedure = (p: DentalProcedure) => {
+    setProcList([...procList, { id: p.id, name: p.name, price: p.basePrice, isCustom: false }]);
+  };
+
+  const addCustomProcedure = () => {
+    setProcList([...procList, { id: crypto.randomUUID(), name: "Custom Procedure", price: 0, isCustom: true }]);
+  };
+
+  const removeProcedure = (index: number) => {
+    setProcList(procList.filter((_, i) => i !== index));
+  };
+
+  const updateProcedure = (index: number, field: 'name' | 'price', value: any) => {
+    const newList = [...procList];
+    newList[index] = { ...newList[index], [field]: value };
+    setProcList(newList);
+  };
+
   const handleSave = async () => {
-    if (!tools) return;
     setIsSaving(true);
     const res = await completeTreatmentAction(appointment.id, {
       notes,
-      procedures: tools.procedures
-        .filter((p) => selectedProcs.includes(p.id))
-        .map((p) => ({ id: p.id, name: p.name, price: p.basePrice })),
-      inventoryUsed: tools.inventory
+      procedures: procList.map(p => ({ id: p.id, name: p.name, price: Number(p.price) })),
+      inventoryUsed: tools?.inventory
         .filter((i) => usedInv[i.id] > 0)
-        .map((i) => ({ id: i.id, name: i.name, quantity: usedInv[i.id] })),
+        .map((i) => ({ id: i.id, name: i.name, quantity: usedInv[i.id] })) || [],
     });
     if (res.success) {
       onComplete();
@@ -189,89 +207,101 @@ function TreatmentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-3xl rounded-lg bg-white p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
         <h3 className="font-bold border-b pb-2">
           Record Treatment: {appointment.serviceType}
         </h3>
-        <textarea
-          placeholder="Clinical Notes..."
-          className="w-full border p-2 rounded h-20 text-sm"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-        <div className="grid grid-cols-2 gap-4">
-          <div className="border rounded p-2 text-xs space-y-1">
-            <p className="font-bold">Procedures</p>
-            {tools?.procedures.map((p) => (
-              <label key={p.id} className="flex items-center gap-1">
-                <input
-                  type="checkbox"
-                  onChange={(e) =>
-                    e.target.checked
-                      ? setSelectedProcs([...selectedProcs, p.id])
-                      : setSelectedProcs(
-                          selectedProcs.filter((id) => id !== p.id)
-                        )
-                  }
-                />
-                {p.name} (${p.basePrice})
-              </label>
-            ))}
-          </div>
-          <div className="border rounded p-2 text-xs space-y-1">
-            <p className="font-bold">Inventory</p>
-            {tools?.inventory.map((i) => (
-              <div
-                key={i.id}
-                className="flex justify-between items-center py-1 border-b last:border-0"
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* LEFT: Procedures */}
+          <div className="space-y-2">
+            <p className="font-bold text-xs text-gray-500 uppercase">Procedures Performed</p>
+            
+            {/* Catalog Selector */}
+            <div className="flex gap-2 mb-2">
+              <select 
+                className="text-xs p-2 border rounded flex-1"
+                onChange={(e) => {
+                  const p = tools?.procedures.find(proc => proc.id === e.target.value);
+                  if (p) addProcedure(p);
+                  e.target.value = ""; // Reset
+                }}
               >
-                <div className="flex flex-col">
-                  <span className="font-medium">{i.name}</span>
-                  <span className="text-[9px] text-gray-400 uppercase">
-                    {i.category} | Stock: {i.stock}
-                  </span>
+                <option value="">+ Add from Catalog...</option>
+                {tools?.procedures.map(p => (
+                  <option key={p.id} value={p.id}>{p.name} (${p.basePrice})</option>
+                ))}
+              </select>
+              <button onClick={addCustomProcedure} className="bg-gray-100 px-2 rounded text-xs font-bold hover:bg-gray-200">
+                + Custom
+              </button>
+            </div>
+
+            {/* Editable List */}
+            <div className="border rounded bg-gray-50 p-2 space-y-2 max-h-40 overflow-y-auto">
+              {procList.length === 0 && <p className="text-xs italic text-gray-400 text-center py-2">No procedures added.</p>}
+              {procList.map((p, idx) => (
+                <div key={idx} className="flex gap-2 items-center bg-white p-1 rounded border shadow-sm">
+                  <input 
+                    value={p.name} 
+                    onChange={(e) => updateProcedure(idx, 'name', e.target.value)}
+                    className="flex-1 text-xs p-1 border rounded"
+                    placeholder="Procedure Name"
+                  />
+                  <input 
+                    type="number"
+                    value={p.price} 
+                    onChange={(e) => updateProcedure(idx, 'price', e.target.value)}
+                    className="w-16 text-xs p-1 border rounded text-right"
+                    placeholder="$"
+                  />
+                  <button onClick={() => removeProcedure(idx)} className="text-red-500 hover:text-red-700 px-1 font-bold">×</button>
                 </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() =>
-                      setUsedInv({
-                        ...usedInv,
-                        [i.id]: Math.max(0, (usedInv[i.id] || 0) - 1),
-                      })
-                    }
-                    className="px-1.5 py-0.5 bg-gray-100 rounded hover:bg-gray-200"
-                  >
-                    -
-                  </button>
-                  <span className="w-4 text-center font-bold">
-                    {usedInv[i.id] || 0}
-                  </span>
-                  <button
-                    onClick={() =>
-                      setUsedInv({
-                        ...usedInv,
-                        [i.id]: (usedInv[i.id] || 0) + 1,
-                      })
-                    }
-                    className="px-1.5 py-0.5 bg-gray-100 rounded hover:bg-gray-200"
-                  >
-                    +
-                  </button>
+              ))}
+            </div>
+            
+            <div className="text-right font-bold text-sm">
+              Total: ${procList.reduce((sum, p) => sum + Number(p.price || 0), 0)}
+            </div>
+          </div>
+
+          {/* RIGHT: Inventory & Notes */}
+          <div className="space-y-2">
+            <p className="font-bold text-xs text-gray-500 uppercase">Materials Used</p>
+            <div className="border rounded p-2 text-xs space-y-1 max-h-40 overflow-y-auto">
+              {tools?.inventory.map((i) => (
+                <div key={i.id} className="flex justify-between items-center py-1 border-b last:border-0">
+                  <span>{i.name} <span className="text-gray-400">({i.stock})</span></span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setUsedInv({...usedInv, [i.id]: Math.max(0, (usedInv[i.id]||0)-1)})} className="px-1.5 bg-gray-200 rounded">-</button>
+                    <span className="w-4 text-center font-bold">{usedInv[i.id] || 0}</span>
+                    <button onClick={() => setUsedInv({...usedInv, [i.id]: (usedInv[i.id]||0)+1})} className="px-1.5 bg-gray-200 rounded">+</button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            
+            <textarea
+              placeholder="Clinical Notes..."
+              className="w-full border p-2 rounded h-24 text-sm mt-2"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </div>
         </div>
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="w-full bg-pink-600 text-white py-2 rounded font-bold"
-        >
-          {isSaving ? "Saving..." : "Finalize Treatment"}
-        </button>
-        <button onClick={onClose} className="w-full text-xs text-gray-500">
-          Cancel
-        </button>
+
+        <div className="flex justify-end gap-2 border-t pt-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="bg-pink-600 text-white px-6 py-2 rounded font-bold text-sm hover:bg-pink-700 disabled:opacity-50"
+          >
+            {isSaving ? "Finalizing..." : "Complete Treatment"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -717,6 +747,7 @@ function BillingTestSection() {
   const [bill, setBill] = useState<BillingRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [payAmount, setPayAmount] = useState("");
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
 
   const loadBill = async () => {
     if (!appId) return;
@@ -724,6 +755,7 @@ function BillingTestSection() {
     const res = await getBillingDetailsAction(appId);
     if (res.success && res.data) {
       setBill(res.data);
+      setSelectedItems([]); // Reset selection
     } else {
       alert("Bill not found: " + res.error);
       setBill(null);
@@ -750,7 +782,7 @@ function BillingTestSection() {
   const handlePlan = async (months: number) => {
     if (!bill) return;
     setLoading(true);
-    const res = await createPaymentPlanAction(bill.appointmentId, months);
+    const res = await createPaymentPlanAction(bill.appointmentId, months, selectedItems);
     setLoading(false);
     if (res.success) {
       alert("Plan created!");
@@ -795,6 +827,32 @@ function BillingTestSection() {
             </div>
           </div>
 
+          {/* Line Items (New!) */}
+          {bill.items && bill.items.length > 0 && (
+            <div className="space-y-1 bg-black/20 p-2 rounded">
+              <p className="text-[10px] font-bold text-emerald-300 uppercase mb-1">Billable Items</p>
+              {bill.items.map(item => (
+                <label key={item.id} className="flex justify-between items-center text-xs p-1 hover:bg-white/5 rounded cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedItems.includes(item.id)}
+                      onChange={(e) => {
+                        if(e.target.checked) setSelectedItems([...selectedItems, item.id]);
+                        else setSelectedItems(selectedItems.filter(id => id !== item.id));
+                      }}
+                      disabled={item.status !== 'unpaid'}
+                    />
+                    <span className={item.status !== 'unpaid' ? 'opacity-50 line-through' : ''}>
+                      {item.name}
+                    </span>
+                  </div>
+                  <span className="font-mono">${item.price}</span>
+                </label>
+              ))}
+            </div>
+          )}
+
           {/* Actions */}
           {bill.remainingBalance > 0 && (
             <div className="grid grid-cols-2 gap-4">
@@ -828,7 +886,7 @@ function BillingTestSection() {
                   </button>
                 </div>
                 <p className="text-[9px] text-emerald-300 italic text-center">
-                  *Auto-calculates dates starting next month
+                  {selectedItems.length > 0 ? `Splitting $${bill.items.filter(i => selectedItems.includes(i.id)).reduce((s,x)=>s+x.price,0)}` : "*Splits full balance"}
                 </p>
               </div>
             </div>

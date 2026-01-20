@@ -21,6 +21,13 @@ export const transactionSchema = z.object({
   recordedBy: z.string().optional(), // Staff UID
 });
 
+export const billingItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  price: z.number().min(0),
+  status: z.enum(["unpaid", "plan", "paid"]).default("unpaid"),
+});
+
 export const billingRecordSchema = z.object({
   appointmentId: z.string().min(1),
   patientId: z.string().min(1),
@@ -29,6 +36,9 @@ export const billingRecordSchema = z.object({
   totalAmount: z.number().min(0),
   remainingBalance: z.number().min(0),
   status: PaymentStatusEnum.default("unpaid"),
+
+  // Line Items
+  items: z.array(billingItemSchema).default([]),
 
   // Strategy
   paymentPlan: z.object({

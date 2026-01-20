@@ -15,6 +15,7 @@ import {
   getDentistAppointments,
 } from "@/lib/services/appointment-service";
 import { processPayment } from "@/lib/services/billing-service";
+import { getClinicSettings } from "@/lib/services/clinic-service";
 import {
   updatePatientRecord,
   getPatientRecord,
@@ -142,11 +143,27 @@ export async function cancelAppointmentAction(
   return { success: true };
 }
 
+// TODO: Normalize this action to return { success, data, error } in the future
 // Client Action: Check Availability
 export async function getAvailabilityAction(
   date: string
 ): Promise<CalendarAvailability> {
-  const takenRes = await getTakenSlots(date);
+  // 1. Check Global Clinic Schedule (Day of Week)
+  const settingsRes = await getClinicSettings();
+  const dayName = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+  
+  const schedule = settingsRes.data?.operatingHours?.[dayName as keyof typeof settingsRes.data.operatingHours];
+  
+  // If clinic is closed on this day (e.g. Sunday)
+  if (schedule && !schedule.isOpen) {
+    return {
+      takenSlots: [],
+      isHoliday: true,
+      holidayReason: "Clinic Closed (Regular Schedule)"
+    };
+  }
+
+  // 2. Check Specific Holidays (Manual Off Days)
   const offDaysRes = await getClinicOffDays(date, date);
   const isHoliday = !!(
     offDaysRes.success &&
@@ -154,11 +171,21 @@ export async function getAvailabilityAction(
     offDaysRes.data.length > 0
   );
 
+  if (isHoliday) {
+    return {
+      takenSlots: [],
+      isHoliday: true,
+      holidayReason: offDaysRes.data![0].reason
+    };
+  }
+
+  // 3. Check Capacity
+  const takenRes = await getTakenSlots(date);
+
   return {
     takenSlots: takenRes.data || [],
-    isHoliday,
-    holidayReason:
-      isHoliday && offDaysRes.data ? offDaysRes.data[0].reason : null,
+    isHoliday: false,
+    holidayReason: null,
   };
 }
 

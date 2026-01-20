@@ -19,6 +19,13 @@ export interface BillingInstallment {
   paidAt?: Timestamp;
 }
 
+export interface BillingItem {
+  id: string;
+  name: string;
+  price: number;
+  status: "unpaid" | "plan" | "paid";
+}
+
 export interface BillingRecord {
   id: string; // Matches Appointment ID
   appointmentId: string;
@@ -28,6 +35,8 @@ export interface BillingRecord {
   remainingBalance: number;
   status: "unpaid" | "partial" | "paid" | "overdue" | "refunded";
   
+  items: BillingItem[];
+
   paymentPlan: {
     type: "full" | "installments";
     installments: BillingInstallment[];

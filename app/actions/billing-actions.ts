@@ -15,7 +15,8 @@ export async function getBillingDetailsAction(appointmentId: string): Promise<{ 
 
 export async function createPaymentPlanAction(
   appointmentId: string, 
-  months: number
+  months: number,
+  selectedItemIds: string[] = []
 ) {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
@@ -29,10 +30,18 @@ export async function createPaymentPlanAction(
   const billRes = await getBillingDetails(appointmentId);
   if (!billRes.success || !billRes.data) return { success: false, error: "Bill not found" };
 
-  const balance = billRes.data.remainingBalance;
-  if (balance <= 0) return { success: false, error: "No balance to split" };
+  let planTotal = billRes.data.remainingBalance;
 
-  const amountPerMonth = Math.floor((balance / months) * 100) / 100;
+  // If specific items selected, sum them up
+  if (selectedItemIds.length > 0 && billRes.data.items) {
+    planTotal = billRes.data.items
+      .filter(item => selectedItemIds.includes(item.id))
+      .reduce((sum, item) => sum + item.price, 0);
+  }
+
+  if (planTotal <= 0) return { success: false, error: "No balance to split" };
+
+  const amountPerMonth = Math.floor((planTotal / months) * 100) / 100;
   const installments: BillingInstallment[] = [];
   let currentDate = new Date();
 
@@ -41,12 +50,12 @@ export async function createPaymentPlanAction(
     installments.push({
       id: crypto.randomUUID(),
       dueDate: currentDate.toISOString().split('T')[0],
-      amount: i === months - 1 ? (balance - (amountPerMonth * (months - 1))) : amountPerMonth, // Handle rounding remainder
+      amount: i === months - 1 ? (planTotal - (amountPerMonth * (months - 1))) : amountPerMonth, // Handle rounding remainder
       status: 'pending'
     });
   }
 
-  return await setupPaymentPlan(appointmentId, installments);
+  return await setupPaymentPlan(appointmentId, installments, selectedItemIds);
 }
 
 export async function getAllBillingAction(filter: 'paid' | 'unpaid' | 'partial' | 'all' = 'all'): Promise<{ success: boolean; data?: BillingRecord[]; error?: string }> {

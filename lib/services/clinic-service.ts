@@ -6,15 +6,67 @@ import {
   doc, 
   updateDoc, 
   deleteDoc, 
+  getDoc,
+  setDoc,
   query, 
   where, 
   orderBy 
 } from "firebase/firestore";
-import { DentalProcedure } from "../types/clinic";
-import { procedureSchema } from "../validations/clinic";
+import { DentalProcedure, ClinicSettings } from "../types/clinic";
+import { procedureSchema, clinicSettingsSchema } from "../validations/clinic";
 import { z } from "zod";
 
 const COLLECTION_NAME = "procedures";
+const SETTINGS_COLLECTION = "clinic_settings";
+const SETTINGS_DOC_ID = "general";
+
+const DEFAULT_HOURS = {
+  open: "09:00",
+  close: "17:00",
+  isOpen: true
+};
+
+const DEFAULT_SETTINGS: ClinicSettings = {
+  maxConcurrentPatients: 1,
+  operatingHours: {
+    monday: DEFAULT_HOURS,
+    tuesday: DEFAULT_HOURS,
+    wednesday: DEFAULT_HOURS,
+    thursday: DEFAULT_HOURS,
+    friday: DEFAULT_HOURS,
+    saturday: { ...DEFAULT_HOURS, close: "12:00" },
+    sunday: { ...DEFAULT_HOURS, isOpen: false }
+  }
+};
+
+export async function getClinicSettings() {
+  try {
+    const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
+    const snap = await getDoc(docRef);
+    
+    if (snap.exists()) {
+      return { success: true, data: snap.data() as ClinicSettings };
+    }
+    
+    // Return defaults if not set
+    return { success: true, data: DEFAULT_SETTINGS };
+  } catch (error) {
+    console.error("Error loading clinic settings:", error);
+    return { success: false, error: "Failed to load settings" };
+  }
+}
+
+export async function updateClinicSettings(data: ClinicSettings) {
+  try {
+    const validData = clinicSettingsSchema.parse(data);
+    const docRef = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
+    await setDoc(docRef, validData, { merge: true });
+    return { success: true };
+  } catch (error) {
+    console.error("Error saving clinic settings:", error);
+    return { success: false, error: "Failed to save settings" };
+  }
+}
 
 export async function getAllProcedures(onlyActive: boolean = true) {
   try {
