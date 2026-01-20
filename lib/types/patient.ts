@@ -2,9 +2,9 @@ import type { Timestamp } from "firebase/firestore";
 import type { PatientRegistrationData } from "../validations/patient-registration";
 
 export type PatientRecord = {
-  uid: string; // Matches UserProfile.uid
+  uid: string;
 
-  // Account profile fields used across pages
+  // Used in client-dashboard + admin panel
   displayName?: string;
   email?: string;
   phoneNumber?: string;
@@ -14,13 +14,13 @@ export type PatientRecord = {
   emergencyContact?: string;
   address?: string;
 
-  // Admin/booking flags
+  // Used in appointment-actions.ts
   isProfileComplete?: boolean;
 
-  // Backend-test / registration flow (make optional to avoid TS build breaks)
+  // Used in backend-test/page.tsx
   registration?: PatientRegistrationData;
 
-  // Legacy/simple medical history used by admin panel
+  // Used in PatientRecordsPanel.tsx
   medicalHistory?: {
     allergies?: string[];
     conditions?: string[];
