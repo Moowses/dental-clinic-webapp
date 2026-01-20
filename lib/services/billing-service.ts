@@ -12,11 +12,13 @@ import {
   getDocs,
 } from "firebase/firestore";
 
-import {
-  BillingRecord,
-  BillingInstallment,
-  BillingItem,
-} from "../types/billing";
+
+import type { BillingStatus, BillingRecord, BillingInstallment, BillingItem } from "../types/billing";
+type ComputedTotals = {
+  totalAmount: number;
+  remainingBalance: number;
+  status: BillingStatus;
+};
 
 const BILLING_COLLECTION = "billing_records";
 const APPOINTMENTS_COLLECTION = "appointments";
@@ -31,7 +33,7 @@ function isExcludedFromBalance(status: any) {
   return s === "paid" || s === "void" || s === "waived";
 }
 
-function computeFromItems(items: BillingItem[], fallbackTotal = 0) {
+function computeFromItems(items: BillingItem[], fallbackTotal = 0): ComputedTotals {
   const hasItems = Array.isArray(items) && items.length > 0;
 
   const totalAmount = hasItems
@@ -44,14 +46,10 @@ function computeFromItems(items: BillingItem[], fallbackTotal = 0) {
         .reduce((sum, it: any) => sum + Number(it?.price || 0), 0)
     : Number(fallbackTotal || 0);
 
-  const status: "paid" | "overdue" | "unpaid" | "partial" | "refunded" =
-    remainingBalance <= 0
-      ? "paid"
-      : remainingBalance < totalAmount
-        ? "partial"
-        : "unpaid";
+  const status: BillingStatus =
+    remainingBalance <= 0 ? "paid" : remainingBalance < totalAmount ? "partial" : "unpaid";
 
-  return { totalAmount, remainingBalance, status } as const;
+  return { totalAmount, remainingBalance, status };
 }
 
 export async function createBillingRecord(
@@ -117,13 +115,13 @@ export async function getBillingDetails(appointmentId: string) {
           : [];
 
         // ✅ compute totals from items if available, else fallback to totalBill/paymentStatus
-        const computed = itemsFromAppointment.length
-          ? computeFromItems(itemsFromAppointment, Number(appData.treatment.totalBill || 0))
-          : {
-              totalAmount: Number(appData.treatment.totalBill || 0),
-              remainingBalance: appData.paymentStatus === "paid" ? 0 : Number(appData.treatment.totalBill || 0),
-              status: appData.paymentStatus === "paid" ? "paid" : "unpaid",
-            };
+      const computed: ComputedTotals = itemsFromAppointment.length
+      ? computeFromItems(itemsFromAppointment, Number(appData.treatment.totalBill || 0))
+      : {
+          totalAmount: Number(appData.treatment.totalBill || 0),
+          remainingBalance: appData.paymentStatus === "paid" ? 0 : Number(appData.treatment.totalBill || 0),
+          status: appData.paymentStatus === "paid" ? "paid" : "unpaid",
+        };
 
         const virtualRecord: BillingRecord = {
           id: appointmentId,

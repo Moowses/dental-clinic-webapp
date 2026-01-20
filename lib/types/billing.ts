@@ -1,8 +1,7 @@
 import type { Timestamp, FieldValue } from "firebase/firestore";
 
+export type BillingStatus = "unpaid" | "partial" | "paid" | "overdue" | "refunded";
 
-
-// The Firestore representation (Types converted to Timestamps where applicable)
 export interface BillingTransaction {
   id: string;
   amount: number;
@@ -28,14 +27,14 @@ export interface BillingItem {
 }
 
 export interface BillingRecord {
-  id: string; // Matches Appointment ID
+  id: string;
   appointmentId: string;
   patientId: string;
-  
+
   totalAmount: number;
   remainingBalance: number;
-  status: "unpaid" | "partial" | "paid" | "overdue" | "refunded";
-  
+  status: BillingStatus;
+
   items: BillingItem[];
 
   paymentPlan: {
@@ -44,7 +43,7 @@ export interface BillingRecord {
   };
 
   transactions: BillingTransaction[];
-  
-createdAt: Timestamp | FieldValue;
-updatedAt: Timestamp | FieldValue;
+
+  createdAt: Timestamp | FieldValue;
+  updatedAt: Timestamp | FieldValue;
 }
