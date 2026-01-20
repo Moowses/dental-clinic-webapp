@@ -1,5 +1,6 @@
-import { Timestamp } from "firebase/firestore";
-import { BillingRecordData } from "../validations/billing";
+import type { Timestamp, FieldValue } from "firebase/firestore";
+
+
 
 // The Firestore representation (Types converted to Timestamps where applicable)
 export interface BillingTransaction {
@@ -44,6 +45,6 @@ export interface BillingRecord {
 
   transactions: BillingTransaction[];
   
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+createdAt: Timestamp | FieldValue;
+updatedAt: Timestamp | FieldValue;
 }
