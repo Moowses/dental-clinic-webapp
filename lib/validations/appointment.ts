@@ -22,26 +22,27 @@ export function validateAppointmentDate(dateStr: string) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  const maxDate = new Date(today);
-  maxDate.setDate(maxDate.getDate() + 14);
-
-  if (inputDate < tomorrow) {
-    return "Appointments must be booked at least 1 day in advance.";
+  // Allow same-day booking (inputDate >= today)
+  if (inputDate < today) {
+    return "Appointments cannot be booked in the past.";
   }
+
+  // Extend max booking window to 3 months (approx 90 days)
+  const maxDate = new Date(today);
+  maxDate.setDate(maxDate.getDate() + 90);
+
   if (inputDate > maxDate) {
-    return "Appointments cannot be booked more than 2 weeks in advance.";
+    return "Appointments cannot be booked more than 3 months in advance.";
   }
   return null; // Valid
 }
 
 export function validateAppointmentTime(timeStr: string) {
+  // We only check format here. Business hours are checked against Clinic Settings in the DB.
   const [hours, minutes] = timeStr.split(":").map(Number);
   
-  if (hours < 8 || hours > 17 || (hours === 17 && minutes > 0)) {
-    return "Appointments are only available between 08:00 and 17:00.";
+  if (isNaN(hours) || isNaN(minutes)) {
+    return "Invalid time format.";
   }
   return null; // Valid
 }
