@@ -30,6 +30,7 @@ import {
   PaymentMethod,
 } from "@/lib/types/appointment";
 import { sendAppointmentEmail } from "@/lib/services/email-service";
+import { rescheduleAppointment } from "@/lib/services/appointment-service";
 
 export type BookingState = ActionState;
 
@@ -115,6 +116,75 @@ export async function bookAppointmentAction(
     },
     data
   );
+}
+
+const staffBookingSchema = bookingSchema.extend({
+  patientId: z.string().min(1, "Please select a patient"),
+});
+
+export async function staffBookAppointmentAction(prevState: any, data: FormData) {
+  const { auth } = await import("@/lib/firebase/firebase");
+
+  if (!auth.currentUser) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const staffProfile = await getUserProfile(auth.currentUser.uid);
+  if (!staffProfile.success || !staffProfile.data) {
+    return { success: false, error: "User profile not found" };
+  }
+
+  if (staffProfile.data.role === "client") {
+    return { success: false, error: "Unauthorized: Staff access required" };
+  }
+
+  return actionWrapper(staffBookingSchema, async (parsed) => {
+    // Business rules
+    const dateError = validateAppointmentDate(parsed.date);
+    if (dateError) throw new Error(dateError);
+
+    const timeError = validateAppointmentTime(parsed.time);
+    if (timeError) throw new Error(timeError);
+
+    // Patient profile (for name/email)
+    const patientProfileRes = await getUserProfile(parsed.patientId);
+    if (!patientProfileRes.success || !patientProfileRes.data) {
+      throw new Error("Selected patient not found");
+    }
+
+    const patientName =
+      patientProfileRes.data.displayName ||
+      parsed.displayName ||
+      "Patient";
+
+    // Create appointment under patientId (NOT staff uid)
+    const result = await createAppointment(parsed.patientId, {
+      serviceType: parsed.serviceType,
+      date: parsed.date,
+      time: parsed.time,
+      notes: parsed.notes,
+      displayName: patientName,
+    });
+
+    if (!result.success || !result.id) {
+      throw new Error(result.error || "Failed to create appointment");
+    }
+
+    // Email patient (if they have email)
+    const patientEmail = patientProfileRes.data.email;
+    if (patientEmail) {
+      await sendAppointmentEmail({
+        id: result.id,
+        date: parsed.date,
+        time: parsed.time,
+        serviceName: parsed.serviceType,
+        patientName,
+        patientEmail,
+      });
+    }
+
+    return { success: true };
+  }, data);
 }
 
 // Client Action: Confirm Appointment (from Email)
@@ -279,6 +349,27 @@ export async function updateAppointmentStatusAction(
   }
 
   return await updateAppointmentStatus(appointmentId, status);
+}
+///resceduleAppointmentAction
+
+export async function rescheduleAppointmentAction(
+  appointmentId: string,
+  newDate: string,
+  newTime: string
+) {
+  try {
+    if (!appointmentId || !newDate || !newTime) {
+      return { success: false, error: "Missing required fields" };
+    }
+
+    const res = await rescheduleAppointment(appointmentId, newDate, newTime);
+    if (!res.success) return { success: false, error: res.error || "Failed to reschedule" };
+
+    return { success: true };
+  } catch (e: any) {
+    console.error("rescheduleAppointmentAction error:", e);
+    return { success: false, error: e?.message || "Failed to reschedule" };
+  }
 }
 
 // Staff Action: Record Payment

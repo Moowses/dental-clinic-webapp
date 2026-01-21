@@ -267,3 +267,80 @@ export async function saveTreatmentRecord(appointmentId: string, data: Omit<Trea
     return { success: false, error: "Failed to save clinical record" };
   }
 }
+
+
+export async function rescheduleAppointment(
+  appointmentId: string,
+  newDate: string,
+  newTime: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!appointmentId || !newDate || !newTime) {
+      return { success: false, error: "Missing required fields" };
+    }
+
+    const apptRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
+    const snap = await getDoc(apptRef);
+
+    if (!snap.exists()) {
+      return { success: false, error: "Appointment not found" };
+    }
+
+    const appt = snap.data() as Appointment;
+    const status = String(appt.status || "pending").toLowerCase();
+
+    // ❌ cannot reschedule cancelled/completed
+    if (status === "cancelled" || status === "completed") {
+      return { success: false, error: "Cannot reschedule cancelled/completed appointments" };
+    }
+
+    // No-op if same date/time
+    if (appt.date === newDate && appt.time === newTime) {
+      return { success: true };
+    }
+
+    // 1) Check global clinic schedule (operatingHours)
+    const settingsRes = await getClinicSettings();
+    const dayName = new Date(`${newDate}T00:00:00`).toLocaleDateString("en-US", {
+      weekday: "long",
+    }).toLowerCase();
+
+    const operatingHours = settingsRes.data?.operatingHours as any;
+    const schedule = operatingHours?.[dayName];
+
+    if (schedule && schedule.isOpen === false) {
+      return { success: false, error: "Clinic is closed on this date" };
+    }
+
+    // 2) Check manual off-days / holidays
+    const offDaysRes = await getClinicOffDays(newDate, newDate);
+    const isHoliday = !!(offDaysRes.success && offDaysRes.data && offDaysRes.data.length > 0);
+    if (isHoliday) {
+      const reason = (offDaysRes.data?.[0] as any)?.reason;
+      return { success: false, error: reason ? `Clinic closed: ${reason}` : "Clinic is closed" };
+    }
+
+    // 3) Capacity check (conflict prevention)
+    const takenRes = await getTakenSlots(newDate);
+    const taken = (takenRes.success ? takenRes.data : []) || [];
+
+    // If the new slot is full -> block
+    if (taken.includes(newTime)) {
+      return { success: false, error: "Selected time slot is not available" };
+    }
+
+    // ✅ Reschedule (keep dentistId as-is)
+    // Set status back to pending so staff can confirm again
+    await updateDoc(apptRef, {
+      date: newDate,
+      time: newTime,
+      status: "pending",
+      updatedAt: serverTimestamp(),
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error rescheduling appointment:", error);
+    return { success: false, error: "Failed to reschedule appointment" };
+  }
+}

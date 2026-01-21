@@ -1,11 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useActionState } from "react";
 
-import { updatePatientRecordAction } from "@/app/actions/auth-actions";
-import { getPatientListAction } from "@/app/actions/patient-actions";
-
+import { getPatientListAction, submitPatientRegistrationAction } from "@/app/actions/patient-actions";
 import { getPatientRecord } from "@/lib/services/patient-service";
 import { getUserProfile, searchPatients } from "@/lib/services/user-service";
 
@@ -23,11 +20,9 @@ function Card({
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-extrabold text-slate-900">{title}</h3>
-          {subtitle ? <p className="text-sm text-slate-500">{subtitle}</p> : null}
-        </div>
+      <div className="px-6 py-4 border-b border-slate-100">
+        <h3 className="text-lg font-extrabold text-slate-900">{title}</h3>
+        {subtitle ? <p className="text-sm text-slate-500">{subtitle}</p> : null}
       </div>
       <div className="p-6">{children}</div>
     </div>
@@ -36,11 +31,22 @@ function Card({
 
 const inputBase =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-300";
-
 const labelSm = "text-[11px] font-extrabold uppercase tracking-widest text-slate-600";
 const sectionCard = "rounded-2xl border border-slate-200 bg-white p-4";
-const checkLabel = "flex items-center gap-2 text-sm text-slate-800";
 const checkBox = "h-4 w-4";
+
+function toBool(v: FormDataEntryValue | null) {
+  return v === "on" || v === "true" || v === "1";
+}
+function toStr(v: FormDataEntryValue | null) {
+  return typeof v === "string" ? v : "";
+}
+function splitComma(v: string) {
+  return v
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 function PatientDetailsModal({
   patientId,
@@ -50,93 +56,73 @@ function PatientDetailsModal({
   onClose: () => void;
 }) {
   const [record, setRecord] = useState<PatientRecord | null>(null);
-  const [displayName, setDisplayName] = useState("");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const reg: any = (record as any)?.registration;
-
   useEffect(() => {
-    Promise.all([getPatientRecord(patientId), getUserProfile(patientId)]).then(
-      ([recordRes, profileRes]) => {
-        if (recordRes.success) setRecord(recordRes.data || null);
-        if (profileRes.success && profileRes.data)
-          setDisplayName(profileRes.data.displayName || "");
-        setLoading(false);
-      }
-    );
+    Promise.all([getPatientRecord(patientId), getUserProfile(patientId)]).then(([r, p]) => {
+      if (r.success) setRecord((r.data as any) || null);
+      if (p.success) setProfile((p.data as any) || null);
+      setLoading(false);
+    });
   }, [patientId]);
+
+  const reg: any = (record as any)?.registration;
+  const pi = reg?.personal_information;
+  const ci = reg?.contact_information;
+
+  const name =
+    [
+      pi?.name?.first_name,
+      pi?.name?.middle_initial,
+      pi?.name?.last_name,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim() || profile?.displayName || "N/A";
+
+  const phone = ci?.mobile_no || (record as any)?.phoneNumber || "N/A";
+  const email = ci?.email_address || profile?.email || "N/A";
+  const address = ci?.home_address || (record as any)?.address || "N/A";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white border border-slate-200 shadow-xl overflow-hidden">
+      <div className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-xl overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100">
           <h3 className="text-lg font-extrabold text-slate-900">Patient Details</h3>
-          <p className="text-sm text-slate-500">Record overview</p>
+          <p className="text-sm text-slate-500">Quick overview</p>
         </div>
 
         <div className="p-5">
           {loading ? (
             <p className="text-sm text-slate-500">Loading...</p>
           ) : (
-            <div className="text-sm space-y-2">
+            <div className="space-y-2 text-sm">
               <div className="flex justify-between gap-4">
                 <span className="text-slate-500">Name</span>
-                <span className="font-bold text-slate-900">{displayName || "N/A"}</span>
+                <span className="font-bold text-slate-900 text-right">{name}</span>
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-slate-500">Phone</span>
-                <span className="font-bold text-slate-900">
-                  {record?.phoneNumber || "N/A"}
-                </span>
+                <span className="font-bold text-slate-900">{phone}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-500">Email</span>
+                <span className="font-bold text-slate-900 text-right">{email}</span>
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-slate-500">Address</span>
-                <span className="font-bold text-slate-900 text-right">
-                  {record?.address || "N/A"}
-                </span>
-              </div>
-
-              <div className="pt-3 border-t border-slate-100">
-                <p className="text-xs font-extrabold text-slate-700 uppercase tracking-wide">
-                  Medical
-                </p>
-                <p className="mt-1 text-sm text-slate-700">
-                  <span className="font-bold">Allergies:</span>{" "}
-                  {reg?.medical_history?.allergies
-                    ? [
-                        reg?.medical_history?.allergies?.local_anesthetic
-                          ? "Local Anaesthetic"
-                          : null,
-                        reg?.medical_history?.allergies?.penicillin_antibiotics
-                          ? "Penicillin"
-                          : null,
-                        reg?.medical_history?.allergies?.sulfa_drugs ? "Sulfa" : null,
-                        reg?.medical_history?.allergies?.aspirin ? "Aspirin" : null,
-                        reg?.medical_history?.allergies?.latex ? "Latex" : null,
-                        reg?.medical_history?.allergies?.others || null,
-                      ]
-                        .filter(Boolean)
-                        .join(", ") || "None"
-                    : record?.medicalHistory?.allergies?.join(", ") || "None"}
-                </p>
-                <p className="text-sm text-slate-700">
-                  <span className="font-bold">Conditions:</span>{" "}
-                  {reg?.medical_history?.conditions_checklist?.join(", ") ||
-                    record?.medicalHistory?.conditions?.join(", ") ||
-                    "None"}
-                </p>
+                <span className="font-bold text-slate-900 text-right">{address}</span>
               </div>
             </div>
           )}
 
-          <div className="mt-5">
-            <button
-              onClick={onClose}
-              className="w-full rounded-xl bg-slate-900 text-white py-2.5 font-extrabold hover:bg-black"
-            >
-              Close
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="mt-5 w-full rounded-xl bg-slate-900 text-white py-2.5 font-extrabold hover:bg-black"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -150,281 +136,318 @@ function PatientEditForm({
   patientId: string;
   onClose: () => void;
 }) {
-  const [record, setRecord] = useState<PatientRecord | null>(null);
-  const [displayName, setDisplayName] = useState("");
+  const [record, setRecord] = useState<any>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const reg: any = (record as any)?.registration;
-
-  const [state, formAction, isPending] = useActionState(updatePatientRecordAction, {
-    success: false,
-  });
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<{ success: boolean; message?: string } | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([getPatientRecord(patientId), getUserProfile(patientId)]).then(
-      ([recordRes, profileRes]) => {
-        if (recordRes.success) setRecord(recordRes.data || null);
-        if (profileRes.success && profileRes.data)
-          setDisplayName(profileRes.data.displayName || "");
-        setLoading(false);
+    Promise.all([getPatientRecord(patientId), getUserProfile(patientId)]).then(([r, p]) => {
+      if (r.success) setRecord(r.data || null);
+      if (p.success) setProfile(p.data || null);
+      setLoading(false);
+    });
+  }, [patientId]);
+
+  const reg = record?.registration || {};
+  const pi = reg?.personal_information || {};
+  const ci = reg?.contact_information || {};
+  const ei = reg?.employment_information || {};
+  const md = reg?.minor_details || {};
+  const dh = reg?.dental_history || {};
+  const rd = reg?.referral_details || {};
+  const mh = reg?.medical_history || {};
+  const ghs = mh?.general_health_screening || {};
+  const phy = mh?.physician || {};
+  const vit = mh?.vitals || {};
+  const all = mh?.allergies || {};
+  const wom = mh?.women_only || {};
+
+  const fallbackEmail = ci?.email_address || profile?.email || "";
+
+  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSaving(true);
+    setStatus(null);
+
+    try {
+      const form = new FormData(e.currentTarget);
+
+      // Support both backend-test variants
+      const dateOfBirth = toStr(form.get("dateOfBirth")) || toStr(form.get("birthdate"));
+      const phoneNumber = toStr(form.get("phoneNumber")) || toStr(form.get("mobileNo"));
+
+      const structuredData: any = {
+        personal_information: {
+          name: {
+            first_name: toStr(form.get("firstName")),
+            last_name: toStr(form.get("lastName")),
+            middle_initial: toStr(form.get("middleInitial")),
+          },
+          nickname: toStr(form.get("nickname")),
+          birthdate: dateOfBirth,
+          sex: toStr(form.get("sex")) || "male",
+          religion: toStr(form.get("religion")),
+          nationality: toStr(form.get("nationality")),
+          effective_date: new Date().toISOString().split("T")[0],
+        },
+        contact_information: {
+          home_address: toStr(form.get("address")),
+          home_no: toStr(form.get("homeNo")),
+          mobile_no: phoneNumber,
+          office_no: toStr(form.get("officeNo")),
+          fax_no: toStr(form.get("faxNo")),
+          // backend-test uses fallback if not provided
+          email_address: toStr(form.get("emailAddress")) || fallbackEmail || "",
+        },
+        employment_information: {
+          occupation: toStr(form.get("occupation")),
+        },
+        minor_details: {
+          is_minor: toBool(form.get("isMinor")),
+          parent_guardian_name: toStr(form.get("guardianName")),
+          parent_guardian_occupation: toStr(form.get("guardianOccupation")),
+        },
+        dental_history: {
+          previous_dentist: toStr(form.get("previousDentist")),
+          last_dental_visit: toStr(form.get("lastDentalVisit")),
+        },
+        referral_details: {
+          referred_by: toStr(form.get("referredBy")),
+          reason_for_consultation: toStr(form.get("consultationReason")),
+        },
+        medical_history: {
+          physician: {
+            name: toStr(form.get("physicianName")),
+            specialty: toStr(form.get("physicianSpecialty")),
+            office_address: toStr(form.get("physicianOffice")),
+            office_number: toStr(form.get("physicianNumber")),
+          },
+          vitals: {
+            blood_type: toStr(form.get("bloodType")),
+            blood_pressure: toStr(form.get("bloodPressure")),
+            bleeding_time: toStr(form.get("bleedingTime")),
+          },
+          general_health_screening: {
+            in_good_health: toBool(form.get("inGoodHealth")),
+            under_medical_condition: {
+              status: toBool(form.get("underMedicalCondition")),
+              condition_description: toStr(form.get("conditionDesc")),
+            },
+            serious_illness_or_surgery: {
+              status: toBool(form.get("seriousIllness")),
+              details: toStr(form.get("illnessDetails")),
+            },
+            hospitalized: {
+              status: toBool(form.get("hospitalized")),
+              when_and_why: toStr(form.get("hospitalizedDetails")),
+            },
+            taking_medication: {
+              status: toBool(form.get("takingMeds")),
+              medication_list: toStr(form.get("medicationList")),
+            },
+            uses_tobacco: toBool(form.get("usesTobacco")),
+            uses_alcohol_or_drugs: toBool(form.get("usesDrugs")),
+          },
+          allergies: {
+            local_anesthetic: toBool(form.get("allergyAnaesthetic")),
+            penicillin_antibiotics: toBool(form.get("allergyPenicillin")),
+            sulfa_drugs: toBool(form.get("allergySulfa")),
+            aspirin: toBool(form.get("allergyAspirin")),
+            latex: toBool(form.get("allergyLatex")),
+            others: toStr(form.get("allergyOthers")),
+          },
+          women_only: {
+            is_pregnant: toBool(form.get("isPregnant")),
+            is_nursing: toBool(form.get("isNursing")),
+            taking_birth_control: toBool(form.get("birthControl")),
+          },
+          conditions_checklist: splitComma(toStr(form.get("conditions"))),
+        },
+        authorization: reg?.authorization || { signature_present: false },
+      };
+
+      const res: any = await submitPatientRegistrationAction(patientId, structuredData);
+
+      if (res?.success) {
+        setStatus({ success: true, message: "Saved successfully." });
+      } else {
+        setStatus({ success: false, message: res?.message || "Failed to save record." });
       }
-    );
-  }, [patientId, state.success]);
+    } catch (err: any) {
+      setStatus({ success: false, message: err?.message || "Failed to save record." });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) return <p className="text-sm text-slate-500">Loading record...</p>;
 
   return (
-    <form action={formAction} className="space-y-5">
-      <input type="hidden" name="targetUid" value={patientId} />
-
-      {/* Header */}
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-extrabold text-slate-900">Patient Record</p>
-        <p className="text-xs text-slate-500">
-          Update patient profile + clinical medical history for dental screening.
-        </p>
-      </div>
-
-      {/* Core patient info */}
+    <form onSubmit={handleSave} className="space-y-5">
+      {/* Patient Record */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <p className={labelSm}>Basic Information</p>
+        <p className={labelSm}>Patient Record</p>
 
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
-          <input
-            name="displayName"
-            defaultValue={displayName}
-            className={inputBase}
-            placeholder="Full Name"
-          />
-          <input
-            name="phoneNumber"
-            defaultValue={record?.phoneNumber}
-            className={inputBase}
-            placeholder="Phone"
-          />
+        <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
+          {/* Personal */}
+          <div className={sectionCard}>
+            <p className={labelSm}>Personal Information</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <input name="firstName" defaultValue={pi?.name?.first_name || ""} className={inputBase} placeholder="First name" />
+              <input name="lastName" defaultValue={pi?.name?.last_name || ""} className={inputBase} placeholder="Last name" />
+              <input name="middleInitial" defaultValue={pi?.name?.middle_initial || ""} className={inputBase} placeholder="Middle initial" />
+              <input name="nickname" defaultValue={pi?.nickname || ""} className={inputBase} placeholder="Nickname" />
 
-          <input
-            name="dateOfBirth"
-            type="date"
-            defaultValue={record?.dateOfBirth}
-            className={inputBase}
-          />
-          <select name="gender" defaultValue={record?.gender || "male"} className={inputBase}>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-            <option value="other">Other</option>
-          </select>
+              {/* backend-test sometimes uses dateOfBirth */}
+              <input
+                name="dateOfBirth"
+                type="date"
+                defaultValue={pi?.birthdate || ""}
+                className={inputBase}
+              />
 
-          <div className="lg:col-span-2">
-            <input
-              name="address"
-              defaultValue={record?.address}
-              className={inputBase}
-              placeholder="Address"
-            />
+              <select name="sex" defaultValue={pi?.sex || "male"} className={inputBase}>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+
+              <input name="religion" defaultValue={pi?.religion || ""} className={inputBase} placeholder="Religion" />
+              <input name="nationality" defaultValue={pi?.nationality || ""} className={inputBase} placeholder="Nationality" />
+            </div>
           </div>
 
-          <input
-            name="allergies"
-            defaultValue={record?.medicalHistory?.allergies?.join(", ")}
-            className={inputBase}
-            placeholder="Allergies (legacy, comma separated)"
-          />
-          <input
-            name="conditions"
-            defaultValue={record?.medicalHistory?.conditions?.join(", ")}
-            className={inputBase}
-            placeholder="Conditions (legacy, comma separated)"
-          />
+          {/* Contact */}
+          <div className={sectionCard}>
+            <p className={labelSm}>Contact Details</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {/* backend-test expects phoneNumber */}
+              <input name="phoneNumber" defaultValue={ci?.mobile_no || ""} className={inputBase} placeholder="Mobile no." />
+              <input name="homeNo" defaultValue={ci?.home_no || ""} className={inputBase} placeholder="Home no." />
+              <input name="officeNo" defaultValue={ci?.office_no || ""} className={inputBase} placeholder="Office no." />
+              <input name="faxNo" defaultValue={ci?.fax_no || ""} className={inputBase} placeholder="Fax no." />
 
-          <div className="lg:col-span-2">
-            <textarea
-              name="medications"
-              defaultValue={record?.medicalHistory?.medications || ""}
-              className={`${inputBase} h-24 resize-none`}
-              placeholder="Medications / Notes"
-            />
+              <div className="sm:col-span-2">
+                {/* not always in backend-test form, but structuredData supports it */}
+                <input name="emailAddress" defaultValue={fallbackEmail} className={inputBase} placeholder="Email address" />
+              </div>
+
+              <div className="sm:col-span-2">
+                <input name="address" defaultValue={ci?.home_address || ""} className={inputBase} placeholder="Home address" />
+              </div>
+            </div>
+          </div>
+
+          {/* Employment + Minor */}
+          <div className={sectionCard}>
+            <p className={labelSm}>Employment & Minor Details</p>
+            <div className="mt-3 grid gap-3">
+              <input name="occupation" defaultValue={ei?.occupation || ""} className={inputBase} placeholder="Occupation" />
+
+              <div className="pt-3 border-t border-slate-100">
+                <label className="flex items-center gap-2 text-sm text-slate-800">
+                  <input type="checkbox" name="isMinor" defaultChecked={!!md?.is_minor} className={checkBox} />
+                  Minor (under legal age)
+                </label>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <input name="guardianName" defaultValue={md?.parent_guardian_name || ""} className={inputBase} placeholder="Parent/Guardian name" />
+                  <input name="guardianOccupation" defaultValue={md?.parent_guardian_occupation || ""} className={inputBase} placeholder="Parent/Guardian occupation" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Dental + Referral */}
+          <div className={sectionCard}>
+            <p className={labelSm}>Dental & Referral</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <input name="previousDentist" defaultValue={dh?.previous_dentist || ""} className={inputBase} placeholder="Previous dentist" />
+              <input name="lastDentalVisit" defaultValue={dh?.last_dental_visit || ""} className={inputBase} placeholder="Last dental visit" />
+              <input name="referredBy" defaultValue={rd?.referred_by || ""} className={inputBase} placeholder="Referred by" />
+              <input name="consultationReason" defaultValue={rd?.reason_for_consultation || ""} className={inputBase} placeholder="Reason for consultation" />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Medical History (Clinical) – redesigned */}
+      {/* Medical History (Clinical) */}
       <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
-        <div className="flex flex-col gap-1">
+        <div>
           <p className="text-sm font-extrabold text-slate-900">Medical History (Clinical)</p>
-          <p className="text-xs text-slate-500">
-            Staff-only clinical fields. Layout is wide for fast chairside review.
-          </p>
+          <p className="text-xs text-slate-500">Chairside clinical screening fields</p>
         </div>
 
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
-          {/* LEFT: Physician + Screening */}
+          {/* Left */}
           <div className="space-y-4">
-            {/* Physician */}
             <div className={sectionCard}>
               <p className={labelSm}>Physician</p>
-
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <input
-                  name="physicianName"
-                  defaultValue={reg?.medical_history?.physician?.name || ""}
-                  className={inputBase}
-                  placeholder="Physician Name"
-                />
-                <input
-                  name="physicianSpecialty"
-                  defaultValue={reg?.medical_history?.physician?.specialty || ""}
-                  className={inputBase}
-                  placeholder="Specialty"
-                />
-                <input
-                  name="physicianOffice"
-                  defaultValue={reg?.medical_history?.physician?.office_address || ""}
-                  className={inputBase}
-                  placeholder="Office Address"
-                />
-                <input
-                  name="physicianNumber"
-                  defaultValue={reg?.medical_history?.physician?.office_number || ""}
-                  className={inputBase}
-                  placeholder="Office No."
-                />
+                <input name="physicianName" defaultValue={phy?.name || ""} className={inputBase} placeholder="Physician name" />
+                <input name="physicianSpecialty" defaultValue={phy?.specialty || ""} className={inputBase} placeholder="Specialty" />
+                <input name="physicianOffice" defaultValue={phy?.office_address || ""} className={inputBase} placeholder="Office address" />
+                <input name="physicianNumber" defaultValue={phy?.office_number || ""} className={inputBase} placeholder="Office no." />
               </div>
             </div>
 
-            {/* General screening */}
             <div className={sectionCard}>
               <div className="flex items-center justify-between gap-3">
                 <p className={labelSm}>General Screening</p>
-
                 <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
-                  <input
-                    type="checkbox"
-                    name="inGoodHealth"
-                    defaultChecked={!!reg?.medical_history?.general_health_screening?.in_good_health}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="inGoodHealth" defaultChecked={!!ghs?.in_good_health} className={checkBox} />
                   In good health
                 </label>
               </div>
 
               <div className="mt-4 grid gap-3">
-                <div className="grid gap-2 sm:grid-cols-[210px_1fr] sm:items-center">
-                  <label className={checkLabel}>
-                    <input
-                      type="checkbox"
-                      name="underMedicalCondition"
-                      defaultChecked={
-                        !!reg?.medical_history?.general_health_screening?.under_medical_condition
-                          ?.status
-                      }
-                      className={checkBox}
-                    />
+                <div className="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center">
+                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                    <input type="checkbox" name="underMedicalCondition" defaultChecked={!!ghs?.under_medical_condition?.status} className={checkBox} />
                     Under medical treatment
                   </label>
-                  <input
-                    name="conditionDesc"
-                    defaultValue={
-                      reg?.medical_history?.general_health_screening?.under_medical_condition
-                        ?.condition_description || ""
-                    }
-                    className={inputBase}
-                    placeholder="Condition details"
-                  />
+                  <input name="conditionDesc" defaultValue={ghs?.under_medical_condition?.condition_description || ""} className={inputBase} placeholder="Condition details" />
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-[210px_1fr] sm:items-center">
-                  <label className={checkLabel}>
-                    <input
-                      type="checkbox"
-                      name="seriousIllness"
-                      defaultChecked={
-                        !!reg?.medical_history?.general_health_screening?.serious_illness_or_surgery
-                          ?.status
-                      }
-                      className={checkBox}
-                    />
+                <div className="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center">
+                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                    <input type="checkbox" name="seriousIllness" defaultChecked={!!ghs?.serious_illness_or_surgery?.status} className={checkBox} />
                     Serious illness / surgery
                   </label>
-                  <input
-                    name="illnessDetails"
-                    defaultValue={
-                      reg?.medical_history?.general_health_screening?.serious_illness_or_surgery
-                        ?.details || ""
-                    }
-                    className={inputBase}
-                    placeholder="Details"
-                  />
+                  <input name="illnessDetails" defaultValue={ghs?.serious_illness_or_surgery?.details || ""} className={inputBase} placeholder="Details" />
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-[210px_1fr] sm:items-center">
-                  <label className={checkLabel}>
-                    <input
-                      type="checkbox"
-                      name="hospitalized"
-                      defaultChecked={
-                        !!reg?.medical_history?.general_health_screening?.hospitalized?.status
-                      }
-                      className={checkBox}
-                    />
+                <div className="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center">
+                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                    <input type="checkbox" name="hospitalized" defaultChecked={!!ghs?.hospitalized?.status} className={checkBox} />
                     Hospitalized recently
                   </label>
-                  <input
-                    name="hospitalizedDetails"
-                    defaultValue={
-                      reg?.medical_history?.general_health_screening?.hospitalized?.when_and_why ||
-                      ""
-                    }
-                    className={inputBase}
-                    placeholder="When and why"
-                  />
+                  <input name="hospitalizedDetails" defaultValue={ghs?.hospitalized?.when_and_why || ""} className={inputBase} placeholder="When and why" />
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-[210px_1fr] sm:items-start">
-                  <label className={`${checkLabel} pt-1`}>
-                    <input
-                      type="checkbox"
-                      name="takingMeds"
-                      defaultChecked={
-                        !!reg?.medical_history?.general_health_screening?.taking_medication?.status
-                      }
-                      className={checkBox}
-                    />
+                <div className="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-start">
+                  <label className="flex items-center gap-2 text-sm text-slate-800 pt-1">
+                    <input type="checkbox" name="takingMeds" defaultChecked={!!ghs?.taking_medication?.status} className={checkBox} />
                     Taking medication
                   </label>
                   <textarea
                     name="medicationList"
-                    defaultValue={
-                      reg?.medical_history?.general_health_screening?.taking_medication
-                        ?.medication_list || ""
-                    }
+                    defaultValue={ghs?.taking_medication?.medication_list || ""}
                     className={`${inputBase} h-20 resize-none`}
                     placeholder="List medications"
                   />
                 </div>
 
                 <div className="pt-1 flex flex-wrap items-center gap-6">
-                  <label className={checkLabel}>
-                    <input
-                      type="checkbox"
-                      name="usesTobacco"
-                      defaultChecked={
-                        !!reg?.medical_history?.general_health_screening?.uses_tobacco
-                      }
-                      className={checkBox}
-                    />
+                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                    <input type="checkbox" name="usesTobacco" defaultChecked={!!ghs?.uses_tobacco} className={checkBox} />
                     Uses tobacco
                   </label>
-                  <label className={checkLabel}>
-                    <input
-                      type="checkbox"
-                      name="usesDrugs"
-                      defaultChecked={
-                        !!reg?.medical_history?.general_health_screening?.uses_alcohol_or_drugs
-                      }
-                      className={checkBox}
-                    />
+                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                    <input type="checkbox" name="usesDrugs" defaultChecked={!!ghs?.uses_alcohol_or_drugs} className={checkBox} />
                     Alcohol / drugs
                   </label>
                 </div>
@@ -432,133 +455,68 @@ function PatientEditForm({
             </div>
           </div>
 
-          {/* RIGHT: Allergies + Vitals + Women + Conditions */}
+          {/* Right */}
           <div className="space-y-4">
-            {/* Allergies */}
+            <div className={sectionCard}>
+              <p className={labelSm}>Vitals</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <input name="bloodType" defaultValue={vit?.blood_type || ""} className={inputBase} placeholder="Blood type" />
+                <input name="bloodPressure" defaultValue={vit?.blood_pressure || ""} className={inputBase} placeholder="Blood pressure" />
+                <input name="bleedingTime" defaultValue={vit?.bleeding_time || ""} className={inputBase} placeholder="Bleeding time" />
+              </div>
+            </div>
+
             <div className={sectionCard}>
               <p className={labelSm}>Allergies</p>
-
               <div className="mt-3 grid gap-2 sm:grid-cols-2 text-sm text-slate-800">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    name="allergyAnaesthetic"
-                    defaultChecked={!!reg?.medical_history?.allergies?.local_anesthetic}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="allergyAnaesthetic" defaultChecked={!!all?.local_anesthetic} className={checkBox} />
                   Local anaesthetic
                 </label>
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    name="allergyPenicillin"
-                    defaultChecked={!!reg?.medical_history?.allergies?.penicillin_antibiotics}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="allergyPenicillin" defaultChecked={!!all?.penicillin_antibiotics} className={checkBox} />
                   Penicillin
                 </label>
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    name="allergySulfa"
-                    defaultChecked={!!reg?.medical_history?.allergies?.sulfa_drugs}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="allergySulfa" defaultChecked={!!all?.sulfa_drugs} className={checkBox} />
                   Sulfa drugs
                 </label>
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    name="allergyAspirin"
-                    defaultChecked={!!reg?.medical_history?.allergies?.aspirin}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="allergyAspirin" defaultChecked={!!all?.aspirin} className={checkBox} />
                   Aspirin
                 </label>
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    name="allergyLatex"
-                    defaultChecked={!!reg?.medical_history?.allergies?.latex}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="allergyLatex" defaultChecked={!!all?.latex} className={checkBox} />
                   Latex
                 </label>
               </div>
 
-              <input
-                name="allergyOthers"
-                defaultValue={reg?.medical_history?.allergies?.others || ""}
-                className={`${inputBase} mt-3`}
-                placeholder="Other allergies"
-              />
+              <input name="allergyOthers" defaultValue={all?.others || ""} className={`${inputBase} mt-3`} placeholder="Other allergies" />
             </div>
 
-            {/* Vitals */}
-            <div className={sectionCard}>
-              <p className={labelSm}>Vitals</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                <input
-                  name="bloodType"
-                  defaultValue={reg?.medical_history?.vitals?.blood_type || ""}
-                  className={inputBase}
-                  placeholder="Blood Type"
-                />
-                <input
-                  name="bloodPressure"
-                  defaultValue={reg?.medical_history?.vitals?.blood_pressure || ""}
-                  className={inputBase}
-                  placeholder="Blood Pressure"
-                />
-                <input
-                  name="bleedingTime"
-                  defaultValue={reg?.medical_history?.vitals?.bleeding_time || ""}
-                  className={inputBase}
-                  placeholder="Bleeding Time"
-                />
-              </div>
-            </div>
-
-            {/* Women only */}
             <div className={sectionCard}>
               <p className={labelSm}>For Women Only</p>
               <div className="mt-3 flex flex-wrap items-center gap-6 text-sm text-slate-800">
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    name="isPregnant"
-                    defaultChecked={!!reg?.medical_history?.women_only?.is_pregnant}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="isPregnant" defaultChecked={!!wom?.is_pregnant} className={checkBox} />
                   Pregnant
                 </label>
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    name="isNursing"
-                    defaultChecked={!!reg?.medical_history?.women_only?.is_nursing}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="isNursing" defaultChecked={!!wom?.is_nursing} className={checkBox} />
                   Nursing
                 </label>
                 <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    name="birthControl"
-                    defaultChecked={!!reg?.medical_history?.women_only?.taking_birth_control}
-                    className={checkBox}
-                  />
+                  <input type="checkbox" name="birthControl" defaultChecked={!!wom?.taking_birth_control} className={checkBox} />
                   Birth control
                 </label>
               </div>
             </div>
 
-            {/* Conditions checklist */}
             <div className={sectionCard}>
               <p className={labelSm}>Conditions Checklist</p>
               <textarea
-                name="conditionsClinical"
-                defaultValue={(reg?.medical_history?.conditions_checklist || []).join(", ")}
+                name="conditions"
+                defaultValue={(mh?.conditions_checklist || []).join(", ")}
                 className={`${inputBase} mt-3 h-28 resize-none`}
                 placeholder="Comma separated (e.g., Hypertension, Diabetes, Asthma)"
               />
@@ -567,25 +525,22 @@ function PatientEditForm({
         </div>
       </div>
 
+      {/* Actions */}
       <div className="flex flex-col gap-3">
         <button
-          disabled={isPending}
+          disabled={saving}
           className="w-full rounded-xl bg-teal-700 text-white py-3 font-extrabold hover:bg-teal-800 disabled:opacity-60"
         >
-          {isPending ? "Saving..." : "Save Patient Record"}
+          {saving ? "Saving..." : "Save Patient Record"}
         </button>
 
-        {state.success ? (
-          <p className="text-emerald-700 text-xs font-extrabold text-center">
-            Update Successful
+        {status ? (
+          <p className={`text-xs font-extrabold text-center ${status.success ? "text-emerald-700" : "text-rose-700"}`}>
+            {status.message || (status.success ? "Saved." : "Failed.")}
           </p>
         ) : null}
 
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full text-xs text-slate-500 hover:text-slate-700"
-        >
+        <button type="button" onClick={onClose} className="w-full text-xs text-slate-500 hover:text-slate-700">
           Close
         </button>
       </div>
@@ -602,15 +557,11 @@ function PatientEditModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      {/* Wider professional modal */}
       <div className="w-full max-w-6xl rounded-2xl bg-white border border-slate-200 shadow-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100">
           <h3 className="text-lg font-extrabold text-slate-900">Edit Patient Record</h3>
-          <p className="text-sm text-slate-500">
-            Complete clinical details for proper dental assessment.
-          </p>
+          <p className="text-sm text-slate-500">Updates follow backend-test structured registration schema.</p>
         </div>
-        {/* Scrollable body */}
         <div className="p-6 max-h-[85vh] overflow-y-auto">
           <PatientEditForm patientId={patientId} onClose={onClose} />
         </div>
@@ -661,15 +612,8 @@ export default function PatientRecordsPanel() {
     return directory;
   }, [searchQuery, searchResults, directory]);
 
-  const tableModeLabel = searchQuery.trim()
-    ? "Search Results"
-    : "Patient Directory (Staff Only)";
-
   return (
-    <Card
-      title="Patient Search & Records"
-      subtitle="Search, view, and update patient medical history"
-    >
+    <Card title="Patient Search & Records" subtitle="Search, view, and update patient medical history (clinical)">
       <div className="space-y-3">
         <div className="relative">
           <input
@@ -693,9 +637,7 @@ export default function PatientRecordsPanel() {
                       setShowDropdown(false);
                     }}
                   >
-                    <div className="font-bold text-slate-900">
-                      {u.displayName || "No Name"}
-                    </div>
+                    <div className="font-bold text-slate-900">{u.displayName || "No Name"}</div>
                     <div className="text-xs text-slate-500">{u.email}</div>
                   </li>
                 ))}
@@ -705,8 +647,9 @@ export default function PatientRecordsPanel() {
 
         <div className="pt-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-extrabold text-slate-700">{tableModeLabel}</p>
-
+            <p className="text-xs font-extrabold text-slate-700">
+              {searchQuery.trim() ? "Search Results" : "Patient Directory (Staff)"}
+            </p>
             <p className="text-[11px] text-slate-500">
               {searchQuery.trim()
                 ? `${tableRows.length} result(s)`
@@ -736,24 +679,18 @@ export default function PatientRecordsPanel() {
                 ) : tableRows.length === 0 ? (
                   <tr>
                     <td className="p-3 text-slate-500" colSpan={4}>
-                      {searchQuery.trim()
-                        ? "No matching patients found."
-                        : "No patients found in directory."}
+                      {searchQuery.trim() ? "No matching patients found." : "No patients found in directory."}
                     </td>
                   </tr>
                 ) : (
                   tableRows.map((u) => (
                     <tr key={u.uid} className="border-t border-slate-100">
                       <td className="p-3">
-                        <div className="font-bold text-slate-900">
-                          {u.displayName || "No Name"}
-                        </div>
+                        <div className="font-bold text-slate-900">{u.displayName || "No Name"}</div>
                         <div className="text-xs text-slate-500 md:hidden">{u.email}</div>
                       </td>
                       <td className="p-3 hidden md:table-cell text-slate-700">{u.email}</td>
-                      <td className="p-3 hidden lg:table-cell text-[11px] text-slate-500">
-                        {u.uid}
-                      </td>
+                      <td className="p-3 hidden lg:table-cell text-[11px] text-slate-500">{u.uid}</td>
                       <td className="p-3">
                         <div className="flex justify-end gap-2">
                           <button
@@ -791,12 +728,8 @@ export default function PatientRecordsPanel() {
           )}
         </div>
 
-        {viewingUid && (
-          <PatientDetailsModal patientId={viewingUid} onClose={() => setViewingUid(null)} />
-        )}
-        {editingUid && (
-          <PatientEditModal patientId={editingUid} onClose={() => setEditingUid(null)} />
-        )}
+        {viewingUid && <PatientDetailsModal patientId={viewingUid} onClose={() => setViewingUid(null)} />}
+        {editingUid && <PatientEditModal patientId={editingUid} onClose={() => setEditingUid(null)} />}
       </div>
     </Card>
   );

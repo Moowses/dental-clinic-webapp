@@ -19,11 +19,17 @@ import UnassignedAppointmentsPanel from "@/components/admin/UnassignedAppointmen
 
 import BillingOverviewPanel from "@/components/admin/BillingOverviewPanel";
 import BillingPaymentPlansPanel from "@/components/admin/BillingPaymentPlansPanel";
+import { getAllAppointments } from "@/lib/services/appointment-service";
+import { getAllBillingRecords } from "@/lib/services/billing-service";
+import { getInventory } from "@/lib/services/inventory-service";
+import WalkInBookingModal from "@/components/WalkInBookingModal";
+
 
 type TabKey =
   | "dashboard"
   | "appointments"
   | "billing"
+  | "inventory"
   | "patients"
   | "staff"
   | "procedures";
@@ -53,6 +59,16 @@ export default function AdminDashboardPage() {
 
   const canSeeAppointments = isAdmin || isFrontDesk;
   const canSeeBilling = isAdmin || isFrontDesk;
+  const canSeeInventory = isAdmin || isFrontDesk;
+  const showClinicOverview = isAdmin || isFrontDesk;
+  const canSeeWalkInBooking = isAdmin || isFrontDesk;
+  const [walkInOpen, setWalkInOpen] = useState(false);
+
+  const [clinicOverview, setClinicOverview] = useState({
+    todaysAppointments: 0,
+    monthlySales: 0,
+    lowStockItems: 0,
+  });
 
   useEffect(() => {
     if (loading) return;
@@ -63,13 +79,113 @@ export default function AdminDashboardPage() {
     if (!loading && user) {
       if (tab === "appointments" && !canSeeAppointments) setTab("dashboard");
       if (tab === "billing" && !canSeeBilling) setTab("dashboard");
+      if (tab === "inventory" && !canSeeInventory) setTab("dashboard");
     }
-  }, [tab, canSeeAppointments, canSeeBilling, loading, user]);
+  }, [tab, canSeeAppointments, canSeeBilling, canSeeInventory, loading, user]);
+
+  // Clinic overview metrics (safe defaults for now; wire to services when ready)
+useEffect(() => {
+  if (loading || !user) return;
+   if (!showClinicOverview) return;
+  const toISODate = (d: Date) => {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const toDateSafe = (v: any): Date | null => {
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    if (typeof v?.toDate === "function") return v.toDate(); // Firestore Timestamp
+    if (typeof v?.seconds === "number") return new Date(v.seconds * 1000);
+    return null;
+  };
+
+ const load = async () => {
+  try {
+   
+    const today = toISODate(new Date());
+    const apptRes = await getAllAppointments(today);
+    const todaysAppointments =
+      apptRes?.success && Array.isArray(apptRes.data) ? apptRes.data.length : 0;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
+
+    const billsRes = await getAllBillingRecords("all");
+    const bills = billsRes?.success && Array.isArray(billsRes.data) ? billsRes.data : [];
+
+    let monthlySales = 0;
+
+    for (const b of bills) {
+      const txs = Array.isArray((b as any)?.transactions) ? (b as any).transactions : [];
+      for (const tx of txs) {
+        const d = toDateSafe(tx?.date);
+        if (!d) continue;
+        if (d >= monthStart && d < monthEnd) {
+          monthlySales += Number(tx?.amount || 0);
+        }
+      }
+    }
+
+   
+    const invRes = await getInventory(true);
+    const items = invRes?.success && Array.isArray(invRes.data) ? invRes.data : [];
+
+   const getThreshold = (it: any) => {
+  const t =
+    it?.minThreshold ??        
+    it?.min ??                
+    it?.minStock ??
+    it?.minimumStock ??
+    it?.minQty ??
+    it?.reorderLevel ??
+    it?.threshold ??
+    it?.lowStockThreshold ??
+    null;
+
+  const num = Number(t);
+  return Number.isFinite(num) ? num : null;
+};
+let lowStockItems = 0;
+
+for (const it of items) {
+  const stock = Number(it?.stock);
+  const threshold = getThreshold(it);
+
+  if (!Number.isFinite(stock)) continue;
+  if (threshold === null) continue;
+
+  if (stock <= threshold) lowStockItems += 1;
+}
+    setClinicOverview((prev) => ({
+      ...prev,
+      todaysAppointments,
+      monthlySales,
+      lowStockItems,
+    }));
+  } catch (e) {
+    console.error("Failed to load clinic overview:", e);
+    setClinicOverview((prev) => ({
+      ...prev,
+      todaysAppointments: 0,
+      monthlySales: 0,
+      lowStockItems: 0,
+    }));
+  }
+};
+
+load();
+}, [loading, user, showClinicOverview]);
+
+
+
 
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center text-slate-500 font-bold animate-pulse">
-        Initializing Admin Dashboard...
+        Initializing Admin Dashboard... note please dont share the http://159.223.94.124:3000 
       </div>
     );
   }
@@ -117,6 +233,10 @@ export default function AdminDashboardPage() {
   const goBilling = () => {
     setTab("billing");
     setActiveBillingId(null);
+  };
+
+  const goInventory = () => {
+    setTab("inventory");
   };
 
   return (
@@ -198,6 +318,19 @@ export default function AdminDashboardPage() {
                 </button>
               )}
 
+              {canSeeInventory && (
+                <button
+                  className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
+                    tab === "inventory"
+                      ? "bg-slate-900 text-white"
+                      : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                  }`}
+                  onClick={goInventory}
+                >
+                  Inventory
+                </button>
+              )}
+
               <button
                 className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
                   tab === "patients"
@@ -255,7 +388,7 @@ export default function AdminDashboardPage() {
 
           {/* Main */}
           <main className="space-y-6">
-            {/* Hero (unchanged layout; removed top action button; reduced KPI fonts) */}
+            {/* Hero */}
             <section className="rounded-2xl overflow-hidden shadow-sm border border-slate-200">
               <div className="bg-gradient-to-r from-[#0f5f73] to-[#1aa4c7] px-6 py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-5">
                 <div className="flex items-center gap-4">
@@ -274,99 +407,228 @@ export default function AdminDashboardPage() {
                 <div className="flex items-center gap-3">
                   <div className="hidden sm:block text-white/90 text-sm font-bold">
                     Role:{" "}
-                    <span className="uppercase font-extrabold">{role || "staff"}</span>
+                    <span className="uppercase font-extrabold">
+                      {role || "staff"}
+                    </span>
                   </div>
                 </div>
               </div>
-
-             
             </section>
 
-            {/* Dashboard */}
-            {tab === "dashboard" && (
-              <div className="space-y-6">
-                {(isDentist || isAdmin) && <DentistSchedulePanel />}
-                {(isFrontDesk || isAdmin) && <InventoryPanel />}
+  {/* Dashboard */}
+{tab === "dashboard" && (
+  <div className="space-y-6">
+    {/* Clinic Overview (Admin / Front Desk only) */}
+    {showClinicOverview && (
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xl font-extrabold text-slate-900">Clinic Overview</p>
+            <p className="text-sm text-slate-500">
+              Quick snapshot of today and this month.
+            </p>
+          </div>
+          <p className="text-xs text-slate-400 font-bold">Updated automatically</p>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Today's Appointments */}
+          <button
+            type="button"
+            onClick={() => goAppointments("calendar")}
+            className="text-left rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition p-5"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold text-slate-600">
+                  Today&apos;s Appointments
+                </p>
+                <p className="mt-3 text-4xl font-extrabold text-slate-900">
+                  {clinicOverview.todaysAppointments}
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Click to open the calendar
+                </p>
               </div>
-            )}
+              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
+                <span className="text-purple-700">📅</span>
+              </div>
+            </div>
+          </button>
+
+          {/* Total Sales (This Month) */}
+          <button
+            type="button"
+            onClick={goBilling}
+            className="text-left rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition p-5"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold text-slate-600">
+                  Total Sales (This Month)
+                </p>
+                <p className="mt-3 text-4xl font-extrabold text-slate-900">
+                  ₱{Number(clinicOverview.monthlySales || 0).toLocaleString()}
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Click to view billing
+                </p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
+                <span className="text-amber-700">💳</span>
+              </div>
+            </div>
+          </button>
+
+          {/* Low Stock Items */}
+          <button
+            type="button"
+            onClick={goInventory}
+            disabled={!canSeeInventory}
+            className={`text-left rounded-2xl border border-slate-200 bg-white shadow-sm transition p-5 ${
+              canSeeInventory ? "hover:shadow-md" : "opacity-60 cursor-not-allowed"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold text-slate-600">
+                  Low Stock Items
+                </p>
+                <p className="mt-3 text-4xl font-extrabold text-slate-900">
+                  {clinicOverview.lowStockItems}
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Click to open inventory
+                </p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                <span className="text-red-700">⚠️</span>
+              </div>
+            </div>
+          </button>
+        </div>
+      </section>
+    )}
+
+    {/* Dentist schedule (Dentist + Admin) */}
+    {(isDentist || isAdmin) && <DentistSchedulePanel />}
+
+    {/* Optional: if Front Desk is on dashboard and no clinic overview (shouldn't happen),
+        you can show a small friendly placeholder here. */}
+  </div>
+)}
+
 
             {/* Appointments */}
-            {tab === "appointments" && canSeeAppointments && (
+{tab === "appointments" && canSeeAppointments && (
+  <div className="space-y-6">
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-lg font-extrabold text-slate-900">Appointments</p>
+          <p className="text-sm text-slate-500">
+            Calendar, upcoming bookings, and unassigned queue.
+          </p>
+        </div>
+
+        {/* ✅ Right-side actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* ✅ Staff/Admin Walk-In Booking button */}
+          {(isAdmin || isFrontDesk) && (
+            <button
+              type="button"
+              onClick={() => setWalkInOpen(true)}
+              className="px-4 py-2 rounded-xl font-extrabold text-sm bg-emerald-600 text-white hover:opacity-95 transition"
+            >
+              + Walk-In Booking
+            </button>
+          )}
+
+          {/* Existing appointment sub-tabs */}
+          {APPT_SUB_ITEMS.map((t) => {
+            const active = apptTab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setApptTab(t.key)}
+                className={`px-4 py-2 rounded-xl font-extrabold text-sm transition ${
+                  active
+                    ? "bg-slate-900 text-white"
+                    : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                }`}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+
+    {apptTab === "calendar" && <ClinicSchedulePanel />}
+    {apptTab === "upcoming" && <UpcomingAppointmentsPanel />}
+    {apptTab === "unassigned" && <UnassignedAppointmentsPanel />}
+
+    {/* ✅ Walk-In Booking Modal (rendered inside appointments tab only) */}
+    {(isAdmin || isFrontDesk) && (
+     <WalkInBookingModal
+  open={walkInOpen}
+  onClose={() => setWalkInOpen(false)}
+  onBooked={() => { setWalkInOpen(false); setApptTab("upcoming"); }}
+  forceStaff
+/>
+    )}
+  </div>
+)}
+
+
+            {/* Billing */}
+            {tab === "billing" && canSeeBilling && (
               <div className="space-y-6">
-                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-extrabold text-slate-900">
-                        Appointments
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        Calendar, upcoming bookings, and unassigned queue.
-                      </p>
-                    </div>
+                <BillingOverviewPanel
+                  refreshKey={billingRefreshKey}
+                  onSelectBill={(id) => {
+                    setActiveBillingId(id);
+                    setTab("billing");
+                  }}
+                />
 
-                    <div className="flex flex-wrap gap-2">
-                      {APPT_SUB_ITEMS.map((t) => {
-                        const active = apptTab === t.key;
-                        return (
-                          <button
-                            key={t.key}
-                            onClick={() => setApptTab(t.key)}
-                            className={`px-4 py-2 rounded-xl font-extrabold text-sm transition ${
-                              active
-                                ? "bg-slate-900 text-white"
-                                : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
-                            }`}
-                          >
-                            {t.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                {activeBillingId ? (
+                  <BillingPaymentPlansPanel
+                    billingId={activeBillingId}
+                    onClose={() => {
+                      setActiveBillingId(null);
+                      setBillingRefreshKey((k) => k + 1);
+                    }}
+                    onUpdated={() => setBillingRefreshKey((k) => k + 1)}
+                  />
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
+                    <p className="text-lg font-extrabold text-slate-900">
+                      Select a bill to manage payments.
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Choose items to mark as paid or create an installment plan.
+                    </p>
                   </div>
-                </div>
-
-                {apptTab === "calendar" && <ClinicSchedulePanel />}
-                {apptTab === "upcoming" && <UpcomingAppointmentsPanel />}
-                {apptTab === "unassigned" && <UnassignedAppointmentsPanel />}
+                )}
               </div>
             )}
 
-            {/* Billing */}
-          
-          {tab === "billing" && canSeeBilling && (
-            <div className="space-y-6">
-              {/* TOP: Overview */}
-              <BillingOverviewPanel
-                refreshKey={billingRefreshKey}
-                onSelectBill={(id) => {
-                  setActiveBillingId(id);
-                  setTab("billing");
-                }}
-              />
-
-              {/* BOTTOM: Details (always visible) */}
-              {activeBillingId ? (
-                <BillingPaymentPlansPanel
-                  billingId={activeBillingId}
-                  onClose={() => {
-                    setActiveBillingId(null);
-                    setBillingRefreshKey((k) => k + 1);
-                  }}
-                  onUpdated={() => setBillingRefreshKey((k) => k + 1)}
-                />
-              ) : (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
+            {/* Inventory */}
+            {tab === "inventory" && canSeeInventory && (
+              <div className="space-y-6">
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4">
                   <p className="text-lg font-extrabold text-slate-900">
-                    Select a bill to manage payments.
+                    Inventory
                   </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Choose items to mark as paid or create an installment plan.
+                  <p className="text-sm text-slate-500">
+                    Track supplies, stock levels, and low-stock alerts.
                   </p>
                 </div>
-              )}
-            </div>
-          )}
-
+                <InventoryPanel />
+              </div>
+            )}
 
             {tab === "patients" && <PatientRecordsPanel />}
             {tab === "staff" && isAdmin && <StaffHRPanel />}

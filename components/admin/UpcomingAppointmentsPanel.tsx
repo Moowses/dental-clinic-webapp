@@ -1,7 +1,16 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { getClinicScheduleAction, AppointmentWithPatient } from "@/app/actions/appointment-actions";
+import {
+  getClinicScheduleAction,
+  assignDentistAction,
+  updateAppointmentStatusAction,
+  AppointmentWithPatient,
+} from "@/app/actions/appointment-actions";
+import { getDentistListAction } from "@/app/actions/dentist-actions";
+import ReschuleBookAppointmentModal from "@/components/ReschuleBookAppointmentModal";
+import type { UserProfile } from "@/lib/types/user";
+
 
 function formatLocalYMD(d: Date) {
   const y = d.getFullYear();
@@ -20,36 +29,68 @@ function addDays(date: Date, days: number) {
   return d;
 }
 
-type RangeKey = "today" | "7" | "14" | "30";
+type UpcomingRow = AppointmentWithPatient & { dateStr: string };
 
-type ApptRow = (AppointmentWithPatient & { dateStr: string });
+type BusyMap = Record<
+  string,
+  { assigning?: boolean; confirming?: boolean; cancelling?: boolean }
+>;
+
+const inputBase =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-300";
+
+function pillClass(status: string) {
+  const s = (status || "pending").toLowerCase();
+  const base =
+    "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-extrabold tracking-wide border";
+
+  if (s === "confirmed") return `${base} bg-emerald-50 text-emerald-700 border-emerald-200`;
+  if (s === "cancelled") return `${base} bg-rose-50 text-rose-700 border-rose-200`;
+  if (s === "completed") return `${base} bg-slate-50 text-slate-700 border-slate-200`;
+  return `${base} bg-amber-50 text-amber-700 border-amber-200`;
+}
 
 export default function UpcomingAppointmentsPanel() {
-  const [range, setRange] = useState<RangeKey>("7");
+  const [days, setDays] = useState<7 | 14 | 30>(14);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [rows, setRows] = useState<ApptRow[]>([]);
 
-  const rangeDays = useMemo(() => {
-    if (range === "today") return 1;
-    return Number(range);
-  }, [range]);
+  const [dentists, setDentists] = useState<UserProfile[]>([]);
+  const [rows, setRows] = useState<UpcomingRow[]>([]);
+  const [busy, setBusy] = useState<BusyMap>({});
+
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [reschedOpen, setReschedOpen] = useState(false);
+const [reschedAppt, setReschedAppt] = useState<AppointmentWithPatient | null>(null);
+
+  
+
+  const setRowBusy = (id: string, patch: BusyMap[string]) => {
+    setBusy((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  };
+
+  const fetchDentists = useCallback(async () => {
+    try {
+      const res = await getDentistListAction();
+      if (res?.success && res.data) setDentists(res.data as any);
+    } catch {
+      // silent fail; dropdown will still render but empty
+    }
+  }, []);
 
   const fetchUpcoming = useCallback(async () => {
     setLoading(true);
     setErr(null);
+    setSuccessMsg(null);
 
     try {
       const start = new Date();
       const dates: string[] = [];
-
-      for (let i = 0; i < rangeDays; i++) {
-        dates.push(formatLocalYMD(addDays(start, i)));
-      }
+      for (let i = 0; i < days; i++) dates.push(formatLocalYMD(addDays(start, i)));
 
       const concurrency = 6;
       let idx = 0;
-      const results: ApptRow[] = [];
+      const results: UpcomingRow[] = [];
 
       const workers = new Array(concurrency).fill(0).map(async () => {
         while (idx < dates.length) {
@@ -57,7 +98,7 @@ export default function UpcomingAppointmentsPanel() {
           const dateStr = dates[my];
 
           const res = await getClinicScheduleAction(dateStr);
-          if (res.success && res.data) {
+          if (res?.success && res.data) {
             for (const a of res.data as any[]) {
               results.push({ ...(a as any), dateStr });
             }
@@ -79,30 +120,100 @@ export default function UpcomingAppointmentsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [rangeDays]);
+  }, [days]);
 
   useEffect(() => {
+    fetchDentists();
     fetchUpcoming();
-  }, [fetchUpcoming]);
+  }, [fetchDentists, fetchUpcoming]);
+
+  const dentistOptions = useMemo(
+    () =>
+      dentists.map((d) => ({
+        id: d.uid,
+        label: d.displayName || d.email || d.uid,
+      })),
+    [dentists]
+  );
+
+  async function handleAssign(appointmentId: string, dentistId: string) {
+    if (!dentistId) return;
+
+    setRowBusy(appointmentId, { assigning: true });
+    setErr(null);
+    setSuccessMsg(null);
+
+    try {
+      const res = await assignDentistAction(appointmentId, dentistId);
+      if (!res?.success) throw new Error(res?.error || "Failed to assign doctor.");
+
+      setSuccessMsg("Doctor assigned successfully.");
+      await fetchUpcoming();
+    } catch (e: any) {
+      setErr(e?.message || "Failed to assign doctor.");
+    } finally {
+      setRowBusy(appointmentId, { assigning: false });
+    }
+  }
+
+  async function handleConfirm(appointmentId: string) {
+    setRowBusy(appointmentId, { confirming: true });
+    setErr(null);
+    setSuccessMsg(null);
+
+    try {
+      const res = await updateAppointmentStatusAction(appointmentId, "confirmed");
+      if (!res?.success) throw new Error(res?.error || "Failed to confirm appointment.");
+
+      setSuccessMsg("Appointment confirmed.");
+      await fetchUpcoming();
+    } catch (e: any) {
+      setErr(e?.message || "Failed to confirm appointment.");
+    } finally {
+      setRowBusy(appointmentId, { confirming: false });
+    }
+  }
+
+  async function handleCancel(appointmentId: string) {
+    setRowBusy(appointmentId, { cancelling: true });
+    setErr(null);
+    setSuccessMsg(null);
+
+    try {
+      const res = await updateAppointmentStatusAction(appointmentId, "cancelled");
+      if (!res?.success) throw new Error(res?.error || "Failed to cancel appointment.");
+
+      setSuccessMsg("Appointment cancelled.");
+      await fetchUpcoming();
+    } catch (e: any) {
+      setErr(e?.message || "Failed to cancel appointment.");
+    } finally {
+      setRowBusy(appointmentId, { cancelling: false });
+    }
+  }
+
+ function openRescheduleModal(a: AppointmentWithPatient) {
+  setReschedAppt(a);
+  setReschedOpen(true);
+}
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-100 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-extrabold text-slate-900">Upcoming</h3>
-          <p className="text-sm text-slate-500">Upcoming appointments list</p>
+          <p className="text-sm text-slate-500">Appointments with doctor assignment and actions</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <select
-            value={range}
-            onChange={(e) => setRange(e.target.value as RangeKey)}
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value) as 7 | 14 | 30)}
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
           >
-            <option value="today">Today</option>
-            <option value="7">Next 7 days</option>
-            <option value="14">Next 14 days</option>
-            <option value="30">Next 30 days</option>
+            <option value={7}>Next 7 days</option>
+            <option value={14}>Next 14 days</option>
+            <option value={30}>Next 30 days</option>
           </select>
 
           <button
@@ -115,49 +226,141 @@ export default function UpcomingAppointmentsPanel() {
       </div>
 
       <div className="p-6">
-        {loading ? (
-          <p className="text-sm text-slate-500">Loading...</p>
-        ) : err ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        {err ? (
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {err}
           </div>
+        ) : null}
+
+        {successMsg ? (
+          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+            {successMsg}
+          </div>
+        ) : null}
+
+        {loading ? (
+          <p className="text-sm text-slate-500">Loading...</p>
         ) : rows.length === 0 ? (
           <p className="text-sm text-slate-500 italic">No upcoming appointments.</p>
         ) : (
-          <div className="space-y-2">
-            {rows.map((a) => (
-              <div
-                key={`${a.dateStr}-${a.id}`}
-                className="rounded-2xl border border-slate-200 bg-white p-4"
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="font-extrabold text-slate-900 truncate">
-                      {a.patientName || "Unknown Patient"}
-                    </p>
-                    <p className="text-sm text-slate-700 mt-1">
-                      {parseLocalYMD(a.dateStr).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "2-digit",
-                        year: "numeric",
-                      })}
-                      {a.time ? ` • ${a.time}` : ""}
-                      {a.serviceType ? ` • ${a.serviceType}` : ""}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Status: {String(a.status || "pending").toUpperCase()}
-                    </p>
+          <div className="space-y-3">
+            {rows.map((a) => {
+              const id = String(a.id || "");
+              const status = String(a.status || "pending").toLowerCase();
+
+              const isCancelled = status === "cancelled";
+              const isCompleted = status === "completed";
+              const isConfirmed = status === "confirmed";
+
+              const isBusy =
+                !!busy[id]?.assigning || !!busy[id]?.confirming || !!busy[id]?.cancelling;
+
+              return (
+                <div
+                  key={`${a.dateStr}-${id}`}
+                  className="rounded-2xl border border-slate-200 px-5 py-4"
+                >
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    {/* LEFT: Patient + time */}
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-extrabold text-slate-900 truncate">
+                          {a.patientName || "Unknown Patient"}
+                        </p>
+                        <span className={pillClass(a.status || "pending")}>
+                          {String(a.status || "pending").toUpperCase()}
+                        </span>
+                      </div>
+
+                      <p className="text-sm text-slate-700 mt-1">
+                        {parseLocalYMD(a.dateStr).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "2-digit",
+                          year: "numeric",
+                        })}
+                        {a.time ? ` • ${a.time}` : ""}
+                        {a.serviceType ? ` • ${a.serviceType}` : ""}
+                      </p>
+                    </div>
+
+                    {/* RIGHT: Assign dropdown */}
+                    <div className="w-full md:max-w-[320px]">
+                      <label className="text-xs font-extrabold text-slate-600">
+                        Assign Doctor
+                      </label>
+
+                      <select
+                        className={`${inputBase} mt-1`}
+                        value={a.dentistId || ""}
+                        disabled={isBusy || isCancelled || isCompleted}
+                        onChange={(e) => handleAssign(id, e.target.value)}
+                      >
+                        <option value="">Select dentist…</option>
+                        {dentistOptions.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      {busy[id]?.assigning ? (
+                        <p className="mt-2 text-xs text-slate-500">Assigning...</p>
+                      ) : null}
+                    </div>
                   </div>
 
-                  <div className="text-xs font-extrabold text-slate-600">
-                    {a.dentistId ? "ASSIGNED" : "UNASSIGNED"}
+                  {/* ACTIONS */}
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => handleConfirm(id)}
+                      disabled={isBusy || isCancelled || isCompleted || isConfirmed}
+                      className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-extrabold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {busy[id]?.confirming ? "Confirming..." : "Confirm"}
+                    </button>
+
+                    <button
+                      onClick={() => handleCancel(id)}
+                      disabled={isBusy || isCancelled || isCompleted}
+                      className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-extrabold text-rose-800 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {busy[id]?.cancelling ? "Cancelling..." : "Cancel"}
+                    </button>
+
+                    <button
+                       onClick={() => openRescheduleModal(a)}  
+                      disabled={isBusy || isCancelled || isCompleted}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Reschedule
+                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+            {/* Reschedule Modal */}
+      <ReschuleBookAppointmentModal
+        open={reschedOpen}
+        appointment={
+          reschedAppt
+            ? ({
+                ...reschedAppt,
+                // your list uses dateStr, modal expects date
+                date: (reschedAppt as any).date ?? (reschedAppt as any).dateStr,
+              } as any)
+            : null
+        }
+        onClose={() => {
+          setReschedOpen(false);
+          setReschedAppt(null);
+        }}
+        onRescheduled={fetchUpcoming}
+      />
+
     </div>
+
   );
 }
