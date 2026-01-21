@@ -48,6 +48,30 @@ export async function adjustStockAction(itemId: string, amount: number): Promise
   return await adjustStock(itemId, amount);
 }
 
+export async function updateInventoryItemAction(itemId: string, data: FormData): Promise<ActionState> {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+
+  const profile = await getUserProfile(auth.currentUser.uid);
+  if (!profile.success || profile.data?.role === "client") {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const rawData = Object.fromEntries(data);
+  const formattedData = {
+    ...rawData,
+    stock: Number(rawData.stock),
+    minThreshold: Number(rawData.minThreshold),
+    costPerUnit: Number(rawData.costPerUnit),
+    isActive: rawData.isActive === "true" || rawData.isActive === "on"
+  };
+
+  const parsed = inventorySchema.safeParse(formattedData);
+  if (!parsed.success) return { success: false, error: parsed.error.issues[0].message };
+
+  return await updateInventoryItem(itemId, parsed.data);
+}
+
 export async function deleteInventoryItemAction(itemId: string): Promise<ActionState> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
