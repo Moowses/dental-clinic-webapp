@@ -5,7 +5,7 @@ import {
   getBillingDetailsAction,
   createPaymentPlanAction,
   payInstallmentAction,
-  getBillingByPatientAction, // ✅ NEW (clean architecture)
+  getBillingByPatientAction, 
 } from "@/app/actions/billing-actions";
 
 import { recordPaymentAction } from "@/app/actions/appointment-actions";

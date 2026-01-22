@@ -34,7 +34,7 @@ export default function AdminLoginPage() {
   if (loading) {
     return (
       <div className="p-20 text-center text-gray-500 font-bold animate-pulse">
-        Initializing Admin Portal...
+        Initializing Admin Portal... 
       </div>
     );
   }
