@@ -31,6 +31,8 @@ import {
 } from "@/lib/types/appointment";
 import { sendAppointmentEmail } from "@/lib/services/email-service";
 import { rescheduleAppointment } from "@/lib/services/appointment-service";
+import { getBillingDetails, setupPaymentPlan } from "@/lib/services/billing-service";
+import type { BillingRecord } from "@/lib/types/billing";
 
 export type BookingState = ActionState;
 
@@ -372,6 +374,8 @@ export async function rescheduleAppointmentAction(
   }
 }
 
+
+
 // Staff Action: Record Payment
 export async function recordPaymentAction(
   appointmentId: string,
@@ -423,4 +427,21 @@ export async function recordPaymentAction(
   auth.currentUser.uid,
   itemIds
 );
+}
+
+
+export async function getBillingByPatientAction(
+  patientId: string,
+  filter: "paid" | "unpaid" | "partial" | "all" = "all"
+): Promise<{ success: boolean; data?: BillingRecord[]; error?: string }> {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+
+  const profile = await getUserProfile(auth.currentUser.uid);
+  if (!profile.success || !profile.data || profile.data.role === "client") {
+    return { success: false, error: "Unauthorized: Staff only" };
+  }
+
+  const { getBillingRecordsByPatient } = await import("@/lib/services/billing-service");
+  return await getBillingRecordsByPatient(patientId, filter);
 }

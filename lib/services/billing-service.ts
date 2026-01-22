@@ -447,7 +447,12 @@ export async function getAllBillingRecords(
     }
 
     const snapshot = await getDocs(q);
-    const bills = snapshot.docs.map((d) => d.data() as BillingRecord);
+    // test remove this comment const bills = snapshot.docs.map((d) => d.data() as BillingRecord);
+
+  const bills = snapshot.docs.map((d) => ({
+  id: d.id,
+  ...(d.data() as Omit<BillingRecord, "id">),
+})) as BillingRecord[];
 
     // Sort by createdAt desc
     bills.sort((a, b) => {
@@ -460,5 +465,81 @@ export async function getAllBillingRecords(
   } catch (error) {
     console.error("Error fetching all bills:", error);
     return { success: false, error: "Failed to fetch bills" };
+  }
+}
+
+
+export async function getBillingRecordsByPatient(
+  patientId: string,
+  statusFilter: "paid" | "unpaid" | "partial" | "all" = "all"
+) {
+  try {
+    if (!patientId) return { success: false, error: "Missing patientId" };
+
+    const billingRef = collection(db, BILLING_COLLECTION);
+
+    // Most efficient query: patientId filter first
+    let q = query(billingRef, where("patientId", "==", patientId));
+
+    // Optional server-side status filter (may require composite index)
+    if (statusFilter !== "all") {
+      q = query(billingRef, where("patientId", "==", patientId), where("status", "==", statusFilter));
+    }
+
+    const snapshot = await getDocs(q);
+
+    const bills = snapshot.docs.map((d) => ({
+      id: d.id, 
+      ...(d.data() as Omit<BillingRecord, "id">),
+    })) as BillingRecord[];
+
+    
+    bills.sort((a, b) => {
+      const au = (a.updatedAt as any)?.seconds || 0;
+      const bu = (b.updatedAt as any)?.seconds || 0;
+      if (bu !== au) return bu - au;
+
+      const ac = (a.createdAt as any)?.seconds || 0;
+      const bc = (b.createdAt as any)?.seconds || 0;
+      return bc - ac;
+    });
+
+    return { success: true, data: bills };
+  } catch (error: any) {
+    // If composite index error happens, fallback to patient-only query then filter in memory
+    const msg = String(error?.message || "");
+    const looksLikeIndexError =
+      msg.toLowerCase().includes("index") || msg.toLowerCase().includes("failed-precondition");
+
+    if (looksLikeIndexError && statusFilter !== "all") {
+      try {
+        const billingRef = collection(db, BILLING_COLLECTION);
+        const q2 = query(billingRef, where("patientId", "==", patientId));
+        const snap2 = await getDocs(q2);
+
+        const allBills = snap2.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as BillingRecord[];
+
+        const filtered = allBills.filter((b) => String((b as any).status) === statusFilter);
+
+        filtered.sort((a, b) => {
+          const au = (a.updatedAt as any)?.seconds || 0;
+          const bu = (b.updatedAt as any)?.seconds || 0;
+          if (bu !== au) return bu - au;
+          const ac = (a.createdAt as any)?.seconds || 0;
+          const bc = (b.createdAt as any)?.seconds || 0;
+          return bc - ac;
+        });
+
+        return { success: true, data: filtered };
+      } catch (e) {
+        console.error("Fallback patient billing query failed:", e);
+      }
+    }
+
+    console.error("Error fetching bills by patient:", error);
+    return { success: false, error: "Failed to fetch bills by patient" };
   }
 }

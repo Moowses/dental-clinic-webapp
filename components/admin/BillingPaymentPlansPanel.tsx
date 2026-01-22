@@ -5,6 +5,7 @@ import {
   getBillingDetailsAction,
   createPaymentPlanAction,
   payInstallmentAction,
+  getBillingByPatientAction, // ✅ NEW (clean architecture)
 } from "@/app/actions/billing-actions";
 
 import { recordPaymentAction } from "@/app/actions/appointment-actions";
@@ -13,11 +14,11 @@ type BillableItem = {
   id: string;
   name: string;
   price: number;
-  status: "unpaid" | "paid" | "void" | "waived" | string;
+  status: "unpaid" | "paid" | "void" | "waived" | "plan" | string;
 };
 
 type AnyBill = {
-  id: string;
+  id: string; // In your design: doc id == appointmentId (but we still support older)
   appointmentId: string;
   patientId?: string;
   status?: string;
@@ -26,8 +27,8 @@ type AnyBill = {
   createdAt?: any;
   updatedAt?: any;
   paymentPlan?: any;
-  transactions?: Array<{ id: string; amount: number; date: any; method?: string }>;
-  items?: BillableItem[]; //
+  transactions?: Array<{ id: string; amount: number; date: any; method?: string; itemIds?: string[] }>;
+  items?: BillableItem[];
 };
 
 function money(n: number) {
@@ -58,97 +59,11 @@ function fmtDate(input: any) {
   });
 }
 
-function getBillingNumbers(bill: AnyBill) {
-  const pp = bill?.paymentPlan || {};
-  const inst = pp?.installments;
-
-  const remaining =
-    typeof inst?.remainingBalance === "number"
-      ? inst.remainingBalance
-      : typeof pp?.remainingBalance === "number"
-        ? pp.remainingBalance
-        : typeof bill?.remainingBalance === "number"
-          ? bill.remainingBalance
-          : 0;
-
-  const total =
-    typeof inst?.totalAmount === "number"
-      ? inst.totalAmount
-      : typeof pp?.totalAmount === "number"
-        ? pp.totalAmount
-        : typeof bill?.totalAmount === "number"
-          ? bill.totalAmount
-          : 0;
-
-  const statusRaw =
-    typeof inst?.status === "string"
-      ? inst.status
-      : typeof pp?.status === "string"
-        ? pp.status
-        : typeof bill?.status === "string"
-          ? bill.status
-          : Number(remaining) > 0
-            ? "unpaid"
-            : "paid";
-
-  const status = String(statusRaw || "").toLowerCase() === "paid" ? "paid" : "unpaid";
-
-  return {
-    remaining: Number(remaining || 0),
-    total: Number(total || 0),
-    status,
-  } as const;
-}
-
-export default function BillingPaymentPlansPanel({
-  billingId,
-  onClose,
-  onUpdated,
-}: {
-  billingId: string;
-  onClose: () => void;
-  onUpdated?: () => void;
-}) {
-  const [bill, setBill] = useState<AnyBill | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const [payAmount, setPayAmount] = useState<string>("");
-  const [method, setMethod] = useState<string>("cash");
-
-  const [customMonths, setCustomMonths] = useState<string>("");
-
-  // ✅ NEW: billable selection
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
-
-  async function load() {
-    setLoading(true);
-    setErr(null);
-
-    try {
-      const res = await getBillingDetailsAction(billingId);
-      if (!res?.success || !res.data) throw new Error(res?.error || "Bill not found.");
-
-      setBill(res.data as AnyBill);
-      setSelectedItems([]); // ✅ reset when loading new bill (matches backend-test)
-    } catch (e: any) {
-      setErr(e?.message || "Failed to load bill.");
-      setBill(null);
-      setSelectedItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [billingId]);
-
-  const numbers = useMemo(() => {
+function computeNumbers(bill: AnyBill | null) {
   if (!bill) return null;
+
   const list = Array.isArray(bill.items) ? bill.items : [];
+
   const total = list.length
     ? list.reduce((s, i) => s + Number(i.price || 0), 0)
     : Number(bill.totalAmount || 0);
@@ -159,11 +74,156 @@ export default function BillingPaymentPlansPanel({
         .reduce((s, i) => s + Number(i.price || 0), 0)
     : Number(bill.remainingBalance || 0);
 
-  const status =
-    remaining <= 0 ? "paid" : remaining < total ? "partial" : "unpaid";
+  const status = remaining <= 0 ? "paid" : remaining < total ? "partial" : "unpaid";
 
   return { total, remaining, status } as const;
-}, [bill]);
+}
+
+function billTitle(b: AnyBill) {
+  const firstItem = Array.isArray(b.items) && b.items.length ? String(b.items[0]?.name || "") : "";
+  return firstItem || "Appointment Billing";
+}
+
+function billBadge(b: AnyBill) {
+  const n = computeNumbers(b);
+  if (!n) return "UNPAID";
+  if (n.remaining <= 0) return "PAID";
+  if (n.remaining < n.total) return "PARTIAL";
+  return "UNPAID";
+}
+
+function billKey(b: Partial<AnyBill> | null | undefined) {
+  // ✅ Appointment-based billing: prefer appointmentId
+  return (b?.appointmentId || b?.id || "") as string;
+}
+
+export default function BillingPaymentPlansPanel({
+  billingId,
+  onClose,
+  onUpdated,
+}: {
+  billingId: string; // This should be appointmentId/docId
+  onClose: () => void;
+  onUpdated?: () => void;
+}) {
+  // ✅ active bill key inside modal (appointmentId/docId)
+  const [activeBillId, setActiveBillId] = useState<string>(billingId);
+
+  const [bill, setBill] = useState<AnyBill | null>(null);
+
+  // ✅ patient bills list for switching (fetched via getBillingByPatientAction)
+  const [patientBills, setPatientBills] = useState<AnyBill[]>([]);
+  const [patientBillsLoading, setPatientBillsLoading] = useState(false);
+
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [payAmount, setPayAmount] = useState<string>("");
+  const [method, setMethod] = useState<string>("cash");
+  const [customMonths, setCustomMonths] = useState<string>("");
+
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+
+  // if parent opens modal with another billingId
+  useEffect(() => {
+    setActiveBillId(billingId);
+  }, [billingId]);
+
+  async function loadBillDetails(id: string) {
+    setLoading(true);
+    setErr(null);
+
+    try {
+      // Important: id should match Firestore doc id (appointmentId)
+      const res = await getBillingDetailsAction(id);
+      if (!res?.success || !res.data) throw new Error(res?.error || "Bill not found.");
+
+      const data = res.data as AnyBill;
+
+      // ✅ If backend returns bill with missing appointmentId in some cases,
+      // set it from id so UI stays consistent.
+      const normalized: AnyBill = {
+        ...data,
+        appointmentId: data.appointmentId || data.id || id,
+        id: data.id || id,
+      };
+
+      setBill(normalized);
+      setSelectedItems([]);
+    } catch (e: any) {
+      setErr(e?.message || "Failed to fetch billing");
+      setBill(null);
+      setSelectedItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadPatientBills(patientId: string, keepActiveId?: string) {
+    setPatientBillsLoading(true);
+    try {
+      const res = await getBillingByPatientAction(patientId, "all");
+      if (!res?.success) throw new Error(res?.error || "Failed to load patient bills.");
+
+      const list = (res.data || []) as AnyBill[];
+
+      // normalize keys (appointmentId is the truth)
+      const normalized = list.map((b) => ({
+        ...b,
+        appointmentId: b.appointmentId || b.id,
+        id: b.id || b.appointmentId,
+      })) as AnyBill[];
+
+      // Sort: unpaid/partial first, then newest updated/created
+      normalized.sort((a, b) => {
+        const na = computeNumbers(a);
+        const nb = computeNumbers(b);
+
+        const aOpen = (na?.remaining ?? 0) > 0;
+        const bOpen = (nb?.remaining ?? 0) > 0;
+        if (aOpen !== bOpen) return aOpen ? -1 : 1;
+
+        const at = toDate(a.updatedAt || a.createdAt)?.getTime() || 0;
+        const bt = toDate(b.updatedAt || b.createdAt)?.getTime() || 0;
+        return bt - at;
+      });
+
+      setPatientBills(normalized);
+
+      // ✅ ensure active bill is present
+      const active = keepActiveId || activeBillId;
+      if (active && normalized.length) {
+        const exists = normalized.some((x) => billKey(x) === active);
+        if (!exists) {
+          // fallback to first (likely unpaid)
+          setActiveBillId(billKey(normalized[0]));
+        }
+      }
+    } catch (e) {
+      // Don’t block the modal if this fails
+      console.error(e);
+      setPatientBills([]);
+    } finally {
+      setPatientBillsLoading(false);
+    }
+  }
+
+  // Load active bill whenever it changes
+  useEffect(() => {
+    if (!activeBillId) return;
+    loadBillDetails(activeBillId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBillId]);
+
+  // After bill loads, fetch patient bills (clean server action)
+  useEffect(() => {
+    if (!bill?.patientId) return;
+    loadPatientBills(bill.patientId, billKey(bill));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bill?.patientId]);
+
+  const numbers = useMemo(() => computeNumbers(bill), [bill]);
 
   const txSorted = useMemo(() => {
     const t = bill?.transactions || [];
@@ -182,11 +242,10 @@ export default function BillingPaymentPlansPanel({
       .filter((i) => selectedItems.includes(i.id))
       .reduce((s, x) => s + Number(x.price || 0), 0);
   }, [items, selectedItems]);
+
   useEffect(() => {
-  if (selectedItems.length > 0) {
-    setPayAmount(String(selectedTotal));
-  }
-}, [selectedItems, selectedTotal]);
+    if (selectedItems.length > 0) setPayAmount(String(selectedTotal));
+  }, [selectedItems, selectedTotal]);
 
   async function pay(full: boolean) {
     if (!bill || !numbers) return;
@@ -196,20 +255,30 @@ export default function BillingPaymentPlansPanel({
       setErr("Enter a valid payment amount.");
       return;
     }
+
     if (!full && selectedItems.length > 0 && Number(amt) !== Number(selectedTotal)) {
-    setErr("Amount must match selected items total.");
-    return;
-  }
+      setErr("Amount must match selected items total.");
+      return;
+    }
 
     setBusy(true);
     setErr(null);
 
     try {
-      const res = await recordPaymentAction(bill.appointmentId, method, amt, full ? [] : selectedItems);
-
+      const res = await recordPaymentAction(
+        bill.appointmentId,
+        method,
+        amt,
+        full ? [] : selectedItems
+      );
       if (!res?.success) throw new Error(res?.error || "Payment failed.");
+
       setPayAmount("");
-      await load();
+
+      // refresh current bill + patient list
+      await loadBillDetails(activeBillId);
+      if (bill.patientId) await loadPatientBills(bill.patientId, activeBillId);
+
       onUpdated?.();
     } catch (e: any) {
       setErr(e?.message || "Payment failed.");
@@ -219,26 +288,26 @@ export default function BillingPaymentPlansPanel({
   }
 
   async function payOneInstallment(installmentId: string) {
-  if (!bill) return;
+    if (!bill) return;
 
-  setBusy(true);
-  setErr(null);
+    setBusy(true);
+    setErr(null);
 
-  try {
-    const res = await payInstallmentAction(bill.appointmentId, installmentId, method);
-    if (!res?.success) throw new Error(res?.error || "Failed to pay installment.");
+    try {
+      const res = await payInstallmentAction(bill.appointmentId, installmentId, method);
+      if (!res?.success) throw new Error(res?.error || "Failed to pay installment.");
 
-    await load();
-    onUpdated?.();
-  } catch (e: any) {
-    setErr(e?.message || "Failed to pay installment.");
-  } finally {
-    setBusy(false);
+      await loadBillDetails(activeBillId);
+      if (bill.patientId) await loadPatientBills(bill.patientId, activeBillId);
+
+      onUpdated?.();
+    } catch (e: any) {
+      setErr(e?.message || "Failed to pay installment.");
+    } finally {
+      setBusy(false);
+    }
   }
-}
 
-
- 
   async function createPlan(months: number) {
     if (!bill) return;
 
@@ -253,8 +322,12 @@ export default function BillingPaymentPlansPanel({
     try {
       const res = await createPaymentPlanAction(bill.appointmentId, months, selectedItems);
       if (!res?.success) throw new Error(res?.error || "Failed to create plan.");
+
       setCustomMonths("");
-      await load();
+
+      await loadBillDetails(activeBillId);
+      if (bill.patientId) await loadPatientBills(bill.patientId, activeBillId);
+
       onUpdated?.();
     } catch (e: any) {
       setErr(e?.message || "Failed to create plan.");
@@ -291,6 +364,93 @@ export default function BillingPaymentPlansPanel({
       </div>
 
       <div className="p-6">
+        {/* ✅ Patient Bills Switcher (Appointment-based, clear labels) */}
+        {patientBillsLoading ? (
+          <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+            Loading patient bills…
+          </div>
+        ) : patientBills.length > 1 ? (
+          <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold text-slate-900">Patient Bills (by Appointment)</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Each record below is linked to an <b>Appointment ID</b>.
+                </p>
+              </div>
+              <div className="text-xs text-slate-500">
+                Active Appointment:{" "}
+                <span className="font-mono font-extrabold text-slate-900">{activeBillId}</span>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {patientBills.map((b) => {
+                const key = billKey(b);
+                const isActive = key === activeBillId;
+
+                const n = computeNumbers(b);
+                const badge = billBadge(b);
+
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setActiveBillId(key)}
+                    className={`text-left rounded-2xl border p-3 transition ${
+                      isActive
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className={`text-[11px] font-extrabold ${isActive ? "text-white/80" : "text-slate-500"}`}>
+                          Appointment ID: <span className="font-mono">{b.appointmentId || b.id}</span>
+                        </div>
+
+                        <div className={`mt-1 text-sm font-extrabold truncate ${isActive ? "text-white" : "text-slate-900"}`}>
+                          {billTitle(b)}
+                        </div>
+
+                        <div className={`mt-1 text-xs ${isActive ? "text-white/70" : "text-slate-500"}`}>
+                          Updated: {fmtDate(b.updatedAt || b.createdAt)}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 text-right">
+                        <div className={`text-sm font-extrabold ${isActive ? "text-white" : "text-slate-900"}`}>
+                          ₱ {money(n?.remaining || 0)}
+                        </div>
+                        <div className={`text-[11px] font-bold ${isActive ? "text-white/70" : "text-slate-500"}`}>
+                          / ₱ {money(n?.total || 0)}
+                        </div>
+
+                        <span
+                          className={`mt-2 inline-flex text-[10px] font-extrabold px-2 py-1 rounded-full border ${
+                            isActive
+                              ? "border-white/20 bg-white/10 text-white"
+                              : badge === "PAID"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : badge === "PARTIAL"
+                                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                                  : "border-amber-200 bg-amber-50 text-amber-700"
+                          }`}
+                        >
+                          {badge}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="mt-3 text-[11px] text-slate-500">
+              Unpaid/partial bills are shown first to reduce confusion.
+            </p>
+          </div>
+        ) : null}
+
         {loading ? (
           <p className="text-sm text-slate-500">Loading bill...</p>
         ) : err ? (
@@ -301,11 +461,12 @@ export default function BillingPaymentPlansPanel({
           <p className="text-sm text-slate-500 italic">No billing record.</p>
         ) : (
           <div className="space-y-4">
+            {/* SUMMARY */}
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs font-extrabold text-slate-600 uppercase">Status</p>
                 <p className="text-xl font-extrabold text-slate-900">
-                  {numbers.status.toUpperCase()}
+                  {String(numbers.status).toUpperCase()}
                 </p>
 
                 <p className="text-xs text-slate-600 mt-1">
@@ -332,6 +493,7 @@ export default function BillingPaymentPlansPanel({
               </div>
             </div>
 
+            {/* BILLABLE ITEMS */}
             {items.length > 0 && (
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -362,13 +524,19 @@ export default function BillingPaymentPlansPanel({
                             disabled={disabled}
                             onChange={(e) => {
                               setSelectedItems((prev) => {
-                                if (e.target.checked) return prev.includes(item.id) ? prev : [...prev, item.id];
+                                if (e.target.checked) {
+                                  return prev.includes(item.id) ? prev : [...prev, item.id];
+                                }
                                 return prev.filter((x) => x !== item.id);
                               });
                             }}
                           />
                           <div className={disabled ? "opacity-60" : ""}>
-                            <div className={`text-sm font-extrabold ${disabled ? "line-through text-slate-500" : "text-slate-900"}`}>
+                            <div
+                              className={`text-sm font-extrabold ${
+                                disabled ? "line-through text-slate-500" : "text-slate-900"
+                              }`}
+                            >
                               {item.name}
                             </div>
                             <div className="text-[10px] font-extrabold uppercase text-slate-500">
@@ -391,6 +559,7 @@ export default function BillingPaymentPlansPanel({
               </div>
             )}
 
+            {/* PAYMENTS + PLANS */}
             {numbers.remaining > 0 && (
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 p-4">
@@ -440,9 +609,7 @@ export default function BillingPaymentPlansPanel({
 
                 <div className="rounded-2xl border border-slate-200 p-4">
                   <p className="text-sm font-extrabold text-slate-900">Installment Plan</p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Choose terms or enter a custom month count
-                  </p>
+                  <p className="text-xs text-slate-500 mt-1">Choose terms or enter a custom month count</p>
 
                   <div className="mt-3 grid gap-2">
                     <div className="flex flex-wrap gap-2">
@@ -485,57 +652,55 @@ export default function BillingPaymentPlansPanel({
 
                   {installmentSchedule.length > 0 && (
                     <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-xs font-extrabold text-slate-700 uppercase">
-                        Schedule
-                      </p>
+                      <p className="text-xs font-extrabold text-slate-700 uppercase">Schedule</p>
 
                       <div className="mt-2 space-y-2">
-                     {installmentSchedule.map((i: any, idx: number) => {
-                      const s = String(i.status || "").toLowerCase();
-                      const isPaid = s === "paid";
-                      const canPay = !isPaid && !!i.id;
+                        {installmentSchedule.map((i: any, idx: number) => {
+                          const s = String(i.status || "").toLowerCase();
+                          const isPaid = s === "paid";
+                          const canPay = !isPaid && !!i.id;
 
-                      return (
-                        <div
-                          key={i.id || idx}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3"
-                        >
-                          <div>
-                            <div className="text-sm font-extrabold text-slate-900">
-                              Due: {i.dueDate || "—"}
-                            </div>
-
+                          return (
                             <div
-                              className={`mt-1 inline-flex text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                                isPaid
-                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                  : "bg-amber-50 text-amber-700 border border-amber-200"
-                              }`}
+                              key={i.id || idx}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3"
                             >
-                              {String(i.status || "pending").toUpperCase()}
-                            </div>
-                          </div>
+                              <div>
+                                <div className="text-sm font-extrabold text-slate-900">
+                                  Due: {i.dueDate || "—"}
+                                </div>
 
-                          <div className="flex items-center gap-3">
-                            <div className="text-sm font-extrabold text-slate-900">
-                              ₱ {money(Number(i.amount || 0))}
-                            </div>
+                                <div
+                                  className={`mt-1 inline-flex text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                                    isPaid
+                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                      : "bg-amber-50 text-amber-700 border border-amber-200"
+                                  }`}
+                                >
+                                  {String(i.status || "pending").toUpperCase()}
+                                </div>
+                              </div>
 
-                            <button
-                              disabled={busy || !canPay}
-                              onClick={() => payOneInstallment(String(i.id))}
-                              className={`rounded-xl px-4 py-2 text-xs font-extrabold border ${
-                                isPaid
-                                  ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
-                                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                              } disabled:opacity-60`}
-                            >
-                              {isPaid ? "Paid" : "Pay"}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                              <div className="flex items-center gap-3">
+                                <div className="text-sm font-extrabold text-slate-900">
+                                  ₱ {money(Number(i.amount || 0))}
+                                </div>
+
+                                <button
+                                  disabled={busy || !canPay}
+                                  onClick={() => payOneInstallment(String(i.id))}
+                                  className={`rounded-xl px-4 py-2 text-xs font-extrabold border ${
+                                    isPaid
+                                      ? "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                  } disabled:opacity-60`}
+                                >
+                                  {isPaid ? "Paid" : "Pay"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -543,12 +708,11 @@ export default function BillingPaymentPlansPanel({
               </div>
             )}
 
+            {/* TRANSACTIONS */}
             <div className="rounded-2xl border border-slate-200 overflow-hidden">
               <div className="bg-slate-50 border-b border-slate-200 px-4 py-3">
                 <p className="text-sm font-extrabold text-slate-900">Transaction History</p>
-                <p className="text-xs text-slate-500 mt-1">
-                  Dates are shown with full timestamp for visibility
-                </p>
+                <p className="text-xs text-slate-500 mt-1">Dates are shown with full timestamp for visibility</p>
               </div>
 
               <div className="p-4">

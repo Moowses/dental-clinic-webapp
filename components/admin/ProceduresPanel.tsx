@@ -60,7 +60,7 @@ export default function ProceduresPanel() {
                     </p>
                     <p className="text-xs text-slate-500">ID: {p.id}</p>
                   </div>
-                  <div className="font-extrabold text-slate-900">${p.basePrice}</div>
+                  <div className="font-extrabold text-slate-900">P{p.basePrice}</div>
                 </div>
               ))
             )}

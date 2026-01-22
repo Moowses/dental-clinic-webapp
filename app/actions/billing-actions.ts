@@ -134,3 +134,19 @@ export async function payInstallmentAction(
   const { payInstallment } = await import("@/lib/services/billing-service");
   return await payInstallment(appointmentId, installmentId, method, auth.currentUser.uid);
 }
+
+export async function getBillingByPatientAction(
+  patientId: string,
+  filter: "paid" | "unpaid" | "partial" | "all" = "all"
+): Promise<{ success: boolean; data?: BillingRecord[]; error?: string }> {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+
+  const profile = await getUserProfile(auth.currentUser.uid);
+  if (!profile.success || !profile.data || profile.data.role === "client") {
+    return { success: false, error: "Unauthorized: Staff only" };
+  }
+
+  const { getBillingRecordsByPatient } = await import("@/lib/services/billing-service");
+  return await getBillingRecordsByPatient(patientId, filter);
+}
