@@ -36,8 +36,8 @@ type PatientRow = {
   unpaidBills: number;
   paidBills: number;
 
-  lastActivityMs: number; // ✅ store numeric ms for accurate sorting
-  manageBillId: string; // ✅ appointment-based (appointmentId preferred)
+  lastActivityMs: number;
+  manageBillId: string;
 };
 
 function money(n: number) {
@@ -68,7 +68,28 @@ function fmtDateMs(ms: number) {
   });
 }
 
+/**
+ *  Unifies the totals logic with BillingPaymentPlansPanel.computeNumbers()
+ * - Prefer items[] as truth (most accurate for clinic)
+ * - Fallback to paymentPlan / bill fields if items are missing
+ */
 function getBillingNumbers(bill: AnyBill) {
+  const items = Array.isArray(bill?.items) ? bill.items : [];
+
+  const itemsTotal = items.reduce((s, i) => s + Number(i?.price || 0), 0);
+  const itemsRemaining = items
+    .filter((i) => !["paid", "void", "waived"].includes(String(i?.status || "").toLowerCase()))
+    .reduce((s, i) => s + Number(i?.price || 0), 0);
+
+  // If items exist, treat that as truth
+  if (items.length) {
+    const total = Number(itemsTotal || 0);
+    const remaining = Number(itemsRemaining || 0);
+    const status = remaining <= 0 ? "paid" : remaining < total ? "partial" : "unpaid";
+    return { total, remaining, status } as const;
+  }
+
+  // Fallback: legacy / backend fields
   const pp = bill?.paymentPlan || {};
   const inst = pp?.installments;
 
@@ -76,32 +97,22 @@ function getBillingNumbers(bill: AnyBill) {
     typeof inst?.remainingBalance === "number"
       ? inst.remainingBalance
       : typeof pp?.remainingBalance === "number"
-        ? pp.remainingBalance
-        : typeof bill?.remainingBalance === "number"
-          ? bill.remainingBalance
-          : 0;
+      ? pp.remainingBalance
+      : typeof bill?.remainingBalance === "number"
+      ? bill.remainingBalance
+      : 0;
 
   const total =
     typeof inst?.totalAmount === "number"
       ? inst.totalAmount
       : typeof pp?.totalAmount === "number"
-        ? pp.totalAmount
-        : typeof bill?.totalAmount === "number"
-          ? bill.totalAmount
-          : 0;
+      ? pp.totalAmount
+      : typeof bill?.totalAmount === "number"
+      ? bill.totalAmount
+      : 0;
 
-  const statusRaw =
-    typeof inst?.status === "string"
-      ? inst.status
-      : typeof pp?.status === "string"
-        ? pp.status
-        : typeof bill?.status === "string"
-          ? bill.status
-          : Number(remaining) > 0
-            ? "unpaid"
-            : "paid";
-
-  const status = String(statusRaw || "").toLowerCase() === "paid" ? "paid" : "unpaid";
+  const status =
+    Number(remaining) <= 0 ? "paid" : Number(remaining) < Number(total) ? "partial" : "unpaid";
 
   return {
     remaining: Number(remaining || 0),
@@ -132,7 +143,7 @@ export default function BillingOverviewPanel({
   onSelectBill,
   refreshKey = 0,
 }: {
-  onSelectBill: (billingId: string) => void; // billingId == appointmentId/docId
+  onSelectBill: (billingId: string) => void;
   refreshKey?: number;
 }) {
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -153,7 +164,7 @@ export default function BillingOverviewPanel({
 
         const bills = (res?.data || []) as AnyBill[];
 
-        // normalize filter client-side (status fields vary)
+        //  Filter using unified numbers (same as detail panel)
         const normalizedBills = bills.filter((b) => {
           const n = getBillingNumbers(b);
           if (filter === "paid") return n.remaining <= 0;
@@ -161,7 +172,6 @@ export default function BillingOverviewPanel({
           return true;
         });
 
-        // load patient profiles
         const patientIds = Array.from(
           new Set(normalizedBills.map((b) => b.patientId).filter(Boolean) as string[])
         );
@@ -195,9 +205,8 @@ export default function BillingOverviewPanel({
           const isPaidBill = n.remaining <= 0;
           const isUnpaidBill = n.remaining > 0;
 
-          // ✅ appointment-based key (preferred)
           const billKey = String(b.appointmentId || b.id || "").trim();
-          if (!billKey) continue; // cannot manage without a stable key
+          if (!billKey) continue;
 
           const prev = agg.get(pid);
 
@@ -205,7 +214,6 @@ export default function BillingOverviewPanel({
             const paidBills = isPaidBill ? 1 : 0;
             const unpaidBills = isUnpaidBill ? 1 : 0;
 
-            // ✅ row status based on bill mix
             let status: RowStatus = "unpaid";
             if (paidBills > 0 && unpaidBills > 0) status = "mixed";
             else if (unpaidBills > 0) status = "unpaid";
@@ -221,7 +229,6 @@ export default function BillingOverviewPanel({
               unpaidBills,
               paidBills,
               lastActivityMs: lastMs,
-              // ✅ Prefer unpaid bill for Manage, else this bill
               manageBillId: billKey,
             });
           } else {
@@ -231,17 +238,14 @@ export default function BillingOverviewPanel({
             prev.unpaidBills += isUnpaidBill ? 1 : 0;
             prev.paidBills += isPaidBill ? 1 : 0;
 
-            // ✅ row status based on bill mix (not totals math)
             const hasPaid = prev.paidBills > 0;
             const hasUnpaid = prev.unpaidBills > 0;
             if (hasPaid && hasUnpaid) prev.status = "mixed";
             else if (hasUnpaid) prev.status = "unpaid";
             else prev.status = "paid";
 
-            // ✅ Prefer unpaid bill for Manage
             if (isUnpaidBill) prev.manageBillId = billKey;
 
-            // ✅ keep newest activity; if all paid, manageBillId becomes newest bill
             if (lastMs > (prev.lastActivityMs || 0)) {
               prev.lastActivityMs = lastMs;
               if (prev.unpaidBills === 0) prev.manageBillId = billKey;
@@ -250,7 +254,6 @@ export default function BillingOverviewPanel({
         }
 
         const result = Array.from(agg.values()).sort((a, b) => {
-          // unpaid/mixed first, then newest activity
           const rank = (s: RowStatus) => (s === "unpaid" ? 0 : s === "mixed" ? 1 : 2);
           const ra = rank(a.status);
           const rb = rank(b.status);
@@ -307,7 +310,6 @@ export default function BillingOverviewPanel({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* ✅ clearer: bill counts + patient counts */}
           <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700">
             Bills Unpaid: {stats.billsUnpaid}
           </span>
@@ -387,16 +389,14 @@ export default function BillingOverviewPanel({
                           r.status === "paid"
                             ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                             : r.status === "mixed"
-                              ? "bg-blue-50 text-blue-700 border border-blue-200"
-                              : "bg-amber-50 text-amber-700 border border-amber-200"
+                            ? "bg-blue-50 text-blue-700 border border-blue-200"
+                            : "bg-amber-50 text-amber-700 border border-amber-200"
                         }`}
                       >
                         {r.status.toUpperCase()}
                       </span>
                     </td>
-                    <td className="p-3 text-xs text-slate-600">
-                      {fmtDateMs(r.lastActivityMs)}
-                    </td>
+                    <td className="p-3 text-xs text-slate-600">{fmtDateMs(r.lastActivityMs)}</td>
                     <td className="p-3 text-right">
                       <button
                         onClick={() => onSelectBill(r.manageBillId)}

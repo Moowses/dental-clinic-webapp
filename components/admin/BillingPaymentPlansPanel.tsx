@@ -106,12 +106,12 @@ export default function BillingPaymentPlansPanel({
   onClose: () => void;
   onUpdated?: () => void;
 }) {
-  // ✅ active bill key inside modal (appointmentId/docId)
+  // active bill key inside modal (appointmentId/docId)
   const [activeBillId, setActiveBillId] = useState<string>(billingId);
 
   const [bill, setBill] = useState<AnyBill | null>(null);
 
-  // ✅ patient bills list for switching (fetched via getBillingByPatientAction)
+  // patient bills list for switching (fetched via getBillingByPatientAction)
   const [patientBills, setPatientBills] = useState<AnyBill[]>([]);
   const [patientBillsLoading, setPatientBillsLoading] = useState(false);
 
@@ -141,7 +141,7 @@ export default function BillingPaymentPlansPanel({
 
       const data = res.data as AnyBill;
 
-      // ✅ If backend returns bill with missing appointmentId in some cases,
+      // If backend returns bill with missing appointmentId in some cases,
       // set it from id so UI stays consistent.
       const normalized: AnyBill = {
         ...data,
@@ -191,7 +191,7 @@ export default function BillingPaymentPlansPanel({
 
       setPatientBills(normalized);
 
-      // ✅ ensure active bill is present
+      // ensure active bill is present
       const active = keepActiveId || activeBillId;
       if (active && normalized.length) {
         const exists = normalized.some((x) => billKey(x) === active);
@@ -215,6 +215,15 @@ export default function BillingPaymentPlansPanel({
     loadBillDetails(activeBillId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBillId]);
+
+  //  ESC to close (modal behavior like Sign In)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   // After bill loads, fetch patient bills (clean server action)
   useEffect(() => {
@@ -348,7 +357,14 @@ export default function BillingPaymentPlansPanel({
   }, [bill]);
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black/40" onMouseDown={onClose} />
+      <div className="relative z-10 flex min-h-full items-center justify-center p-4 sm:p-6">
+        <div
+          className="w-full max-w-5xl max-h-[85vh] overflow-auto rounded-2xl"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-lg font-extrabold text-slate-900">Billing &amp; Payment Plans</h3>
@@ -364,7 +380,7 @@ export default function BillingPaymentPlansPanel({
       </div>
 
       <div className="p-6">
-        {/* ✅ Patient Bills Switcher (Appointment-based, clear labels) */}
+        {/* Patient Bills Switcher (Appointment-based, clear labels) */}
         {patientBillsLoading ? (
           <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
             Loading patient bills…
@@ -748,6 +764,9 @@ export default function BillingPaymentPlansPanel({
             </div>
           </div>
         )}
+      </div>
+          </div>
+        </div>
       </div>
     </div>
   );
