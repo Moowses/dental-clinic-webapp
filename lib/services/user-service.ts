@@ -167,3 +167,15 @@ export async function getAllPatients(max: number = 50) {
     return { success: false, error: "Failed to load directory" };
   }
 }
+
+// Lightweight helper for showing names in UI (dentistId -> users/{uid}) Mosses added this
+export async function getUserDisplayNameByUid(
+  uid: string
+): Promise<string | null> {
+  if (!uid) return null;
+
+  const res = await getUserProfile(uid);
+  if (!res.success || !res.data) return null;
+
+  return res.data.displayName?.trim() || res.data.email?.trim() || null;
+}

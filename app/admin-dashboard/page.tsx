@@ -26,6 +26,7 @@ import WalkInBookingModal from "@/components/WalkInBookingModal";
 import ReportsPanel from "@/components/admin/ReportsPanel";
 
 
+
 type TabKey =
   | "dashboard"
   | "appointments"

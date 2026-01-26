@@ -7,9 +7,17 @@ import { useAuth } from "@/lib/hooks/useAuth";
 import { getUserAppointments } from "@/lib/services/appointment-service";
 import { getPatientRecord } from "@/lib/services/patient-service";
 import { updatePatientRecordAction } from "@/app/actions/auth-actions";
+import { cancelAppointmentAction } from "@/app/actions/appointment-actions";
+
 import type { Appointment } from "@/lib/types/appointment";
 import type { PatientRecord } from "@/lib/types/patient";
+
 import BookAppointmentModal from "@/components/BookAppointmentModal";
+import AppointmentDetailsModal, { type AppointmentModalTab } from "@/components/client/AppointmentDetailsModal";
+import AppointmentRowActions from "@/components/client/AppointmentRowActions";
+import { getDentistProfileByUid, type DentistProfile } from "@/lib/services/dentist-profile-service";
+import TransactionsTable from "@/components/client/TransactionsTable";
+import { getUserDisplayNameByUid } from "@/lib/services/user-service";
 
 const BRAND = "#0E4B5A";
 
@@ -33,10 +41,17 @@ function AppointmentsTable({
   appointments,
   loading,
   onAddAppointment,
+  onOpenModal,
+  onCancel,
+  getCancelDisabledReason,
 }: {
   appointments: Appointment[];
   loading: boolean;
   onAddAppointment: () => void;
+  onOpenModal: (appt: Appointment, tab: AppointmentModalTab) => void;
+
+  onCancel: (appt: Appointment) => void;
+  getCancelDisabledReason: (appt: Appointment) => string | null;
 }) {
   if (loading) {
     return (
@@ -101,38 +116,28 @@ function AppointmentsTable({
           </thead>
 
           <tbody className="divide-y divide-slate-100">
-            {appointments.map((app) => (
-              <tr key={app.id} className="hover:bg-slate-50/60">
+            {appointments.map((appt) => (
+              <tr key={(appt as any).id} className="hover:bg-slate-50/60">
                 <td className="px-6 py-4">
-                  <p className="font-bold text-slate-900">{app.serviceType}</p>
-                  <p className="text-xs text-slate-500">Ref: {app.id}</p>
+                  <p className="font-bold text-slate-900">{String((appt as any).serviceType || "")}</p>
+                  <p className="text-xs text-slate-500">Ref: {String((appt as any).id || "")}</p>
                 </td>
 
-                <td className="px-6 py-4 text-slate-700">{app.date}</td>
-                <td className="px-6 py-4 text-slate-700">{app.time}</td>
+                <td className="px-6 py-4 text-slate-700">{String((appt as any).date || "")}</td>
+                <td className="px-6 py-4 text-slate-700">{String((appt as any).time || "")}</td>
 
                 <td className="px-6 py-4">
-                  <StatusBadge status={app.status} />
+                  <StatusBadge status={String((appt as any).status || "")} />
                 </td>
 
                 <td className="px-6 py-4">
-                  <div className="flex gap-2">
-                    <button
-                      className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200"
-                      onClick={() => alert(`View appointment ${app.id}`)}
-                    >
-                      View
-                    </button>
-
-                    {String(app.status).toLowerCase() === "pending" && (
-                      <button
-                        className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"
-                        onClick={() => alert(`Cancel appointment ${app.id}`)}
-                      >
-                        Cancel
-                      </button>
-                    )}
-                  </div>
+                  <AppointmentRowActions
+                    appointment={appt}
+                    onView={() => onOpenModal(appt, "details")}
+                    onTransactions={() => onOpenModal(appt, "transactions")}
+                    onCancel={() => onCancel(appt)}
+                    cancelDisabledReason={getCancelDisabledReason(appt)}
+                  />
                 </td>
               </tr>
             ))}
@@ -265,7 +270,8 @@ function AccountSettingsForm({
 export default function ClientDashboardPage() {
   const { user, role, loading, logout } = useAuth();
 
-  const [active, setActive] = useState<"dashboard" | "settings">("dashboard");
+  const [active, setActive] = useState<"dashboard" | "transactions" | "settings">("dashboard");
+
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
@@ -277,6 +283,19 @@ export default function ClientDashboardPage() {
   const normalizedRole = (role ?? "").toString().trim().toLowerCase();
   const patientName = useMemo(() => user?.displayName || user?.email?.split("@")[0] || "Patient", [user]);
 
+  // Appointment modal state
+  const [openApptModal, setOpenApptModal] = useState(false);
+  const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null);
+  const [initialTab, setInitialTab] = useState<AppointmentModalTab>("details");
+
+  // Dentist profile state
+const [dentistName, setDentistName] = useState<string | null>(null);
+const [dentistLoading, setDentistLoading] = useState(false);
+const [dentistNameMap, setDentistNameMap] = useState<Record<string, string>>({});
+
+
+
+  
   // prevents loader loops + stale responses
   const reqIdRef = useRef(0);
 
@@ -288,11 +307,10 @@ export default function ClientDashboardPage() {
 
     try {
       const res = await getUserAppointments(user.uid);
-      if (reqIdRef.current !== myReq) return; // ignore stale
-
+      if (reqIdRef.current !== myReq) return;
       if (res?.success) setAppointments(res.data || []);
     } catch {
-      // keep UI stable; no infinite loader
+      // keep UI stable
     } finally {
       if (reqIdRef.current === myReq) setHistoryLoading(false);
     }
@@ -302,6 +320,40 @@ export default function ClientDashboardPage() {
     if (!user?.uid) return;
     refreshAppointments();
   }, [user?.uid, refreshAppointments]);
+// Load dentist names for all appointments
+  useEffect(() => {
+  let cancelled = false;
+
+  async function load() {
+    const ids = Array.from(
+      new Set(
+        (appointments || [])
+          .map((a) => String((a as any).dentistId || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (!ids.length) {
+      setDentistNameMap({});
+      return;
+    }
+
+    const pairs = await Promise.all(
+      ids.map(async (id) => {
+        const name = await getUserDisplayNameByUid(id);
+        return [id, name || "Dentist"] as const;
+      })
+    );
+
+    if (!cancelled) setDentistNameMap(Object.fromEntries(pairs));
+  }
+
+  load();
+  return () => {
+    cancelled = true;
+  };
+}, [appointments]);
+
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -322,6 +374,96 @@ export default function ClientDashboardPage() {
       cancelled = true;
     };
   }, [user?.uid]);
+
+  // Resolve dentist profile when selected appointment changes
+ useEffect(() => {
+  let mounted = true;
+
+  async function run() {
+    const dentistId = (selectedAppt as any)?.dentistId as string | undefined;
+
+    if (!dentistId) {
+      setDentistName(null);
+      setDentistLoading(false);
+      return;
+    }
+
+    setDentistLoading(true);
+    try {
+      const name = await getUserDisplayNameByUid(dentistId);
+      if (mounted) setDentistName(name);
+    } finally {
+      if (mounted) setDentistLoading(false);
+    }
+  }
+
+  run();
+  return () => {
+    mounted = false;
+  };
+}, [selectedAppt]);
+
+
+  function openModal(appt: Appointment, tab: AppointmentModalTab) {
+    setSelectedAppt(appt);
+    setInitialTab(tab);
+    setOpenApptModal(true);
+  }
+
+  function getAppointmentDateTimeLocal(appt: Appointment): Date | null {
+    const dateStr = String((appt as any).date || "").trim(); // "YYYY-MM-DD"
+    const timeStr = String((appt as any).time || "").trim(); // "HH:mm"
+
+    if (!dateStr || !timeStr) return null;
+
+    const [y, m, d] = dateStr.split("-").map((v) => parseInt(v, 10));
+    const [hh, mm] = timeStr.split(":").map((v) => parseInt(v, 10));
+
+    if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return null;
+
+    return new Date(y, m - 1, d, hh, mm, 0, 0);
+  }
+
+  function getCancelDisabledReason(appt: Appointment): string | null {
+    const status = String((appt as any).status || "").toLowerCase();
+    if (status !== "pending") return "Only pending appointments can be cancelled.";
+
+    const dt = getAppointmentDateTimeLocal(appt);
+    if (!dt) return null;
+
+    const now = new Date();
+    const diffMs = dt.getTime() - now.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+
+    if (diffMs < 0) {
+      return "This appointment has already started/passed. Please call front desk.";
+    }
+
+    if (diffHours <= 3) {
+      return "You can’t cancel your appointment 3 hours before your appointment. Please call front desk about this.";
+    }
+
+    return null;
+  }
+
+  async function handleCancelAppointment(appt: Appointment) {
+    const reason = getCancelDisabledReason(appt);
+    if (reason) return;
+
+    const id = String((appt as any).id || "");
+    if (!id) return;
+
+    try {
+      const res = await cancelAppointmentAction(id);
+      if (!res?.success) {
+        alert(res?.error || "Failed to cancel appointment.");
+        return;
+      }
+      await refreshAppointments();
+    } catch (e: any) {
+      alert(e?.message || "Failed to cancel appointment.");
+    }
+  }
 
   if (loading) {
     return (
@@ -395,6 +537,14 @@ export default function ClientDashboardPage() {
               >
                 Dashboard
               </button>
+                <button
+                onClick={() => setActive("transactions")}
+                className={`mt-2 w-full rounded-xl px-4 py-3 text-left text-sm font-bold transition ${
+                  active === "transactions" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Transactions
+              </button>
 
               <button
                 onClick={() => setActive("settings")}
@@ -407,7 +557,10 @@ export default function ClientDashboardPage() {
 
               <div className="my-3 border-t border-slate-100" />
 
-              <button onClick={logout} className="w-full rounded-xl px-4 py-3 text-left text-sm font-bold text-red-600 hover:bg-red-50">
+              <button
+                onClick={logout}
+                className="w-full rounded-xl px-4 py-3 text-left text-sm font-bold text-red-600 hover:bg-red-50"
+              >
                 Logout
               </button>
             </div>
@@ -451,7 +604,7 @@ export default function ClientDashboardPage() {
                   <div className="rounded-2xl border border-slate-200 bg-white p-5">
                     <p className="text-xs font-bold text-slate-500">Upcoming (Pending)</p>
                     <p className="mt-2 text-2xl font-extrabold text-slate-900">
-                      {appointments.filter((a) => String(a.status).toLowerCase() === "pending").length}
+                      {appointments.filter((a) => String((a as any).status).toLowerCase() === "pending").length}
                     </p>
                   </div>
 
@@ -470,7 +623,20 @@ export default function ClientDashboardPage() {
             </div>
 
             {active === "dashboard" ? (
-              <AppointmentsTable appointments={appointments} loading={historyLoading} onAddAppointment={() => setOpenBooking(true)} />
+              <AppointmentsTable
+                appointments={appointments}
+                loading={historyLoading}
+                onAddAppointment={() => setOpenBooking(true)}
+                onOpenModal={openModal}
+                onCancel={handleCancelAppointment}
+                getCancelDisabledReason={getCancelDisabledReason}
+              />
+            ) : active === "transactions" ? (
+              <TransactionsTable
+                appointments={appointments}
+                dentistNameMap={dentistNameMap}
+                onOpenModal={(appt) => openModal(appt, "details")}
+              />
             ) : recordLoading ? (
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <p className="text-sm font-semibold text-slate-800">Loading account settings...</p>
@@ -487,12 +653,18 @@ export default function ClientDashboardPage() {
         </div>
       </div>
 
-      <BookAppointmentModal
-        open={openBooking}
-        onClose={() => setOpenBooking(false)}
-        // stable + guarded: prevents modal-close loops
-        onBooked={refreshAppointments}
+      <AppointmentDetailsModal
+        open={openApptModal}
+        onClose={() => setOpenApptModal(false)}
+        appointment={selectedAppt}
+        dentistProfile={dentistName ? { uid: (selectedAppt as any)?.dentistId || "", displayName: dentistName } : null}
+        dentistLoading={dentistLoading}
+        brandColor={BRAND}
+        initialTab={initialTab}
       />
+
+      <BookAppointmentModal open={openBooking} onClose={() => setOpenBooking(false)} onBooked={refreshAppointments} />
+    
     </main>
   );
 }
