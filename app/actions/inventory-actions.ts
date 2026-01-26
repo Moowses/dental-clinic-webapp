@@ -3,6 +3,8 @@ import { inventorySchema } from "@/lib/validations/inventory";
 import { addInventoryItem, updateInventoryItem, adjustStock } from "@/lib/services/inventory-service";
 import { getUserProfile } from "@/lib/services/user-service";
 import { InventoryItem } from "@/lib/types/inventory";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase/firebase";
 
 export async function addInventoryItemAction(prevState: ActionState, data: FormData): Promise<ActionState> {
   console.log("Action: Adding Inventory Item...");
@@ -82,4 +84,42 @@ export async function deleteInventoryItemAction(itemId: string): Promise<ActionS
   }
 
   return await updateInventoryItem(itemId, { isActive: false } as Partial<InventoryItem>);
+}
+
+export async function getInventoryReport() {
+  const snap = await getDocs(collection(db, "inventory"));
+
+  const rows = snap.docs.map((doc) => {
+    const data: any = doc.data();
+
+    const qtyOnHand = Number(data.qtyOnHand ?? data.quantity ?? 0);
+    const reorderLevel =
+      typeof data.reorderLevel === "number" ? data.reorderLevel : undefined;
+
+    return {
+      id: doc.id,
+      name: data.name ?? "Unnamed Item",
+      sku: data.sku,
+      category: data.category,
+      qtyOnHand,
+      reorderLevel,
+      unit: data.unit,
+      updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() ?? data.updatedAt,
+    };
+  });
+
+  const totalItems = rows.length;
+  const lowStockCount = rows.filter(
+    (r) => typeof r.reorderLevel === "number" && r.qtyOnHand <= r.reorderLevel
+  ).length;
+  const outOfStockCount = rows.filter((r) => r.qtyOnHand <= 0).length;
+
+  return {
+    rows,
+    summary: {
+      totalItems,
+      lowStockCount,
+      outOfStockCount,
+    },
+  };
 }

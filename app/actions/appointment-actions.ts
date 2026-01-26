@@ -33,6 +33,18 @@ import { sendAppointmentEmail } from "@/lib/services/email-service";
 import { rescheduleAppointment } from "@/lib/services/appointment-service";
 import { getBillingDetails, setupPaymentPlan } from "@/lib/services/billing-service";
 import type { BillingRecord } from "@/lib/types/billing";
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase/firebase";
+type GetAppointmentsInRangeInput = {
+  fromISO: string;
+  toISO: string;
+};
+
 
 export type BookingState = ActionState;
 
@@ -430,3 +442,41 @@ export async function recordPaymentAction(
 }
 
 
+export async function getAppointmentsInRange({
+  fromISO,
+  toISO,
+}: GetAppointmentsInRangeInput) {
+  const fromStr = fromISO.slice(0, 10); // YYYY-MM-DD
+  const toStr = toISO.slice(0, 10);     // YYYY-MM-DD
+
+  const q = query(
+    collection(db, "appointments"),
+    where("date", ">=", fromStr),
+    where("date", "<=", toStr)
+  );
+
+  const snap = await getDocs(q);
+
+  const rows = snap.docs.map((doc) => {
+    const data: any = doc.data();
+
+    const dateStr = typeof data.date === "string" ? data.date : null;
+    const timeStr = typeof data.time === "string" ? data.time : "00:00";
+
+    // If date is missing, avoid crash and still return a row
+    const startAtDate = dateStr
+      ? new Date(`${dateStr}T${timeStr}:00`)
+      : null;
+
+    return {
+      id: doc.id,
+      startAt: startAtDate && !Number.isNaN(startAtDate.getTime())
+        ? startAtDate.toISOString()
+        : new Date().toISOString(), // fallback
+      status: data.status ?? "unknown",
+      paymentStatus: data.paymentStatus ?? "unknown",
+    };
+  });
+
+  return { rows };
+}

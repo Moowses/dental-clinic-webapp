@@ -23,6 +23,7 @@ import { getAllAppointments } from "@/lib/services/appointment-service";
 import { getAllBillingRecords } from "@/lib/services/billing-service";
 import { getInventory } from "@/lib/services/inventory-service";
 import WalkInBookingModal from "@/components/WalkInBookingModal";
+import ReportsPanel from "@/components/admin/ReportsPanel";
 
 
 type TabKey =
@@ -30,6 +31,7 @@ type TabKey =
   | "appointments"
   | "billing"
   | "inventory"
+  | "reports"
   | "patients"
   | "staff"
   | "procedures";
@@ -330,6 +332,16 @@ load();
                   Inventory
                 </button>
               )}
+              <button
+              className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
+                tab === "reports"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+              }`}
+              onClick={() => setTab("reports")}
+            >
+              Reports
+            </button>
 
               <button
                 className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
@@ -614,6 +626,13 @@ load();
                 )}
               </div>
             )}
+            {/* reports */}
+            {tab === "reports" && (isAdmin || isFrontDesk) && (
+              <div className="space-y-6">
+                <ReportsPanel />
+              </div>
+            )}
+
 
             {/* Inventory */}
             {tab === "inventory" && canSeeInventory && (
