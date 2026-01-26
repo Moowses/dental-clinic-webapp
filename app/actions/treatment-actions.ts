@@ -68,6 +68,7 @@ export async function completeTreatmentAction(
       id: p.id,
       name: p.name,
       price: p.price,
+      toothNumber: p.toothNumber,
       status: "unpaid" as const
     }));
 

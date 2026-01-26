@@ -25,6 +25,7 @@ export const billingItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   price: z.number().min(0),
+  toothNumber: z.string().optional(),
   status: z.enum(["unpaid", "plan", "paid"]).default("unpaid"),
 });
 

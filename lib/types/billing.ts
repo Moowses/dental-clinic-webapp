@@ -23,6 +23,7 @@ export interface BillingItem {
   id: string;
   name: string;
   price: number;
+  toothNumber?: string;
   status: "unpaid" | "plan" | "paid";
 }
 

@@ -8,6 +8,7 @@ export interface DentalProcedure {
   basePrice: number; // The standard price charged to the patient
   description?: string;
   isActive: boolean;
+  requiredInventory?: { inventoryItemId: string; quantity: number }[];
 }
 
 export type ClinicSettings = z.infer<typeof clinicSettingsSchema>;

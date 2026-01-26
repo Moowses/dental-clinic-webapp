@@ -6,6 +6,11 @@ export const procedureSchema = z.object({
   basePrice: z.number().min(0, "Price cannot be negative"),
   description: z.string().optional(),
   isActive: z.boolean().default(true),
+  // The "Recipe" for the procedure
+  requiredInventory: z.array(z.object({
+    inventoryItemId: z.string(),
+    quantity: z.number().min(1)
+  })).default([])
 });
 
 const dayHoursSchema = z.object({

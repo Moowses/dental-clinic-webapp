@@ -44,12 +44,21 @@ export async function createProcedureAction(
     return { success: false, error: "Unauthorized: Admin access required" };
   }
 
-  // Handle number conversion
+  // Handle number conversion and complex types
   const rawData = Object.fromEntries(data);
-  const formattedData: Partial<DentalProcedure> = {
+  const formattedData: any = {
     ...rawData,
     basePrice: Number(rawData.basePrice),
   };
+
+  // Parse requiredInventory if provided as a JSON string
+  if (rawData.requiredInventory) {
+    try {
+      formattedData.requiredInventory = JSON.parse(rawData.requiredInventory as string);
+    } catch (e) {
+      formattedData.requiredInventory = [];
+    }
+  }
 
   // Only set isActive if provided, otherwise let Zod handle the default(true)
   if (rawData.isActive !== undefined) {

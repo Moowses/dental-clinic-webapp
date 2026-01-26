@@ -152,12 +152,12 @@ function TreatmentModal({
   onComplete: () => void;
 }) {
   const [tools, setTools] = useState<{
-    procedures: DentalProcedure[];
+    procedures: (DentalProcedure & { requiredInventory?: { inventoryItemId: string; quantity: number }[] })[];
     inventory: InventoryItem[];
   } | null>(null);
   
   // Custom Procedure List state
-  const [procList, setProcList] = useState<{ id: string; name: string; price: number; isCustom: boolean }[]>([]);
+  const [procList, setProcList] = useState<{ id: string; name: string; price: number; toothNumber: string; isCustom: boolean }[]>([]);
   
   const [usedInv, setUsedInv] = useState<{ [id: string]: number }>({});
   const [notes, setNotes] = useState("");
@@ -165,23 +165,32 @@ function TreatmentModal({
 
   useEffect(() => {
     getTreatmentToolsAction().then((res) => {
-      if (res.success && res.data) setTools(res.data);
+      if (res.success && res.data) setTools(res.data as any);
     });
   }, []);
 
-  const addProcedure = (p: DentalProcedure) => {
-    setProcList([...procList, { id: p.id, name: p.name, price: p.basePrice, isCustom: false }]);
+  const addProcedure = (p: any) => {
+    setProcList([...procList, { id: p.id, name: p.name, price: p.basePrice, toothNumber: "", isCustom: false }]);
+    
+    // Auto-populate required inventory if present
+    if (p.requiredInventory && p.requiredInventory.length > 0) {
+      const newUsedInv = { ...usedInv };
+      p.requiredInventory.forEach((item: any) => {
+        newUsedInv[item.inventoryItemId] = (newUsedInv[item.inventoryItemId] || 0) + item.quantity;
+      });
+      setUsedInv(newUsedInv);
+    }
   };
 
   const addCustomProcedure = () => {
-    setProcList([...procList, { id: crypto.randomUUID(), name: "Custom Procedure", price: 0, isCustom: true }]);
+    setProcList([...procList, { id: crypto.randomUUID(), name: "Custom Procedure", price: 0, toothNumber: "", isCustom: true }]);
   };
 
   const removeProcedure = (index: number) => {
     setProcList(procList.filter((_, i) => i !== index));
   };
 
-  const updateProcedure = (index: number, field: 'name' | 'price', value: any) => {
+  const updateProcedure = (index: number, field: 'name' | 'price' | 'toothNumber', value: any) => {
     const newList = [...procList];
     newList[index] = { ...newList[index], [field]: value };
     setProcList(newList);
@@ -191,7 +200,12 @@ function TreatmentModal({
     setIsSaving(true);
     const res = await completeTreatmentAction(appointment.id, {
       notes,
-      procedures: procList.map(p => ({ id: p.id, name: p.name, price: Number(p.price) })),
+      procedures: procList.map(p => ({ 
+        id: p.id, 
+        name: p.name, 
+        price: Number(p.price),
+        toothNumber: p.toothNumber 
+      })),
       inventoryUsed: tools?.inventory
         .filter((i) => usedInv[i.id] > 0)
         .map((i) => ({ id: i.id, name: i.name, quantity: usedInv[i.id] })) || [],
@@ -207,20 +221,20 @@ function TreatmentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-3xl rounded-lg bg-white p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
-        <h3 className="font-bold border-b pb-2">
+      <div className="w-full max-w-4xl rounded-lg bg-white p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto text-gray-900">
+        <h3 className="font-bold border-b pb-2 text-lg">
           Record Treatment: {appointment.serviceType}
         </h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* LEFT: Procedures */}
           <div className="space-y-2">
-            <p className="font-bold text-xs text-gray-500 uppercase">Procedures Performed</p>
+            <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">Procedures Performed</p>
             
             {/* Catalog Selector */}
             <div className="flex gap-2 mb-2">
               <select 
-                className="text-xs p-2 border rounded flex-1"
+                className="text-xs p-2 border rounded flex-1 bg-white"
                 onChange={(e) => {
                   const p = tools?.procedures.find(proc => proc.id === e.target.value);
                   if (p) addProcedure(p);
@@ -232,74 +246,126 @@ function TreatmentModal({
                   <option key={p.id} value={p.id}>{p.name} (${p.basePrice})</option>
                 ))}
               </select>
-              <button onClick={addCustomProcedure} className="bg-gray-100 px-2 rounded text-xs font-bold hover:bg-gray-200">
+              <button onClick={addCustomProcedure} className="bg-blue-50 text-blue-600 px-3 rounded text-xs font-bold hover:bg-blue-100 transition">
                 + Custom
               </button>
             </div>
 
             {/* Editable List */}
-            <div className="border rounded bg-gray-50 p-2 space-y-2 max-h-40 overflow-y-auto">
-              {procList.length === 0 && <p className="text-xs italic text-gray-400 text-center py-2">No procedures added.</p>}
-              {procList.map((p, idx) => (
-                <div key={idx} className="flex gap-2 items-center bg-white p-1 rounded border shadow-sm">
-                  <input 
-                    value={p.name} 
-                    onChange={(e) => updateProcedure(idx, 'name', e.target.value)}
-                    className="flex-1 text-xs p-1 border rounded"
-                    placeholder="Procedure Name"
-                  />
-                  <input 
-                    type="number"
-                    value={p.price} 
-                    onChange={(e) => updateProcedure(idx, 'price', e.target.value)}
-                    className="w-16 text-xs p-1 border rounded text-right"
-                    placeholder="$"
-                  />
-                  <button onClick={() => removeProcedure(idx)} className="text-red-500 hover:text-red-700 px-1 font-bold">×</button>
+            <div className="border rounded-lg bg-gray-50 p-3 space-y-2 min-h-[200px] max-h-[400px] overflow-y-auto">
+              {procList.length === 0 && (
+                <div className="flex flex-col items-center justify-center h-32 text-gray-400">
+                  <p className="text-sm italic">No procedures added yet.</p>
+                  <p className="text-[10px]">Select from catalog or add a custom entry</p>
                 </div>
-              ))}
-            </div>
-            
-            <div className="text-right font-bold text-sm">
-              Total: ${procList.reduce((sum, p) => sum + Number(p.price || 0), 0)}
-            </div>
-          </div>
-
-          {/* RIGHT: Inventory & Notes */}
-          <div className="space-y-2">
-            <p className="font-bold text-xs text-gray-500 uppercase">Materials Used</p>
-            <div className="border rounded p-2 text-xs space-y-1 max-h-40 overflow-y-auto">
-              {tools?.inventory.map((i) => (
-                <div key={i.id} className="flex justify-between items-center py-1 border-b last:border-0">
-                  <span>{i.name} <span className="text-gray-400">({i.stock})</span></span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setUsedInv({...usedInv, [i.id]: Math.max(0, (usedInv[i.id]||0)-1)})} className="px-1.5 bg-gray-200 rounded">-</button>
-                    <span className="w-4 text-center font-bold">{usedInv[i.id] || 0}</span>
-                    <button onClick={() => setUsedInv({...usedInv, [i.id]: (usedInv[i.id]||0)+1})} className="px-1.5 bg-gray-200 rounded">+</button>
+              )}
+              {procList.map((p, idx) => (
+                <div key={idx} className="flex flex-col gap-2 bg-white p-3 rounded-md border shadow-sm relative group">
+                  <div className="flex gap-2 items-center">
+                    <input 
+                      value={p.name} 
+                      onChange={(e) => updateProcedure(idx, 'name', e.target.value)}
+                      className="flex-1 text-xs font-bold p-1.5 border-b focus:border-blue-500 outline-none"
+                      placeholder="Procedure Name"
+                    />
+                    <button 
+                      onClick={() => removeProcedure(idx)} 
+                      className="text-gray-300 hover:text-red-500 transition-colors font-bold text-lg"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <label className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Tooth #</label>
+                      <input 
+                        value={p.toothNumber} 
+                        onChange={(e) => updateProcedure(idx, 'toothNumber', e.target.value)}
+                        className="w-full text-xs p-1 border rounded"
+                        placeholder="e.g. 14, UL, All"
+                      />
+                    </div>
+                    <div className="w-24">
+                      <label className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Price ($)</label>
+                      <input 
+                        type="number"
+                        value={p.price} 
+                        onChange={(e) => updateProcedure(idx, 'price', e.target.value)}
+                        className="w-full text-xs p-1 border rounded text-right font-mono"
+                        placeholder="0.00"
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
             
-            <textarea
-              placeholder="Clinical Notes..."
-              className="w-full border p-2 rounded h-24 text-sm mt-2"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex justify-between items-center mt-2">
+              <span className="text-blue-800 text-xs font-bold uppercase">Estimated Total</span>
+              <span className="text-lg font-black text-blue-900 font-mono">
+                ${procList.reduce((sum, p) => sum + Number(p.price || 0), 0).toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          {/* RIGHT: Inventory & Notes */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">Materials Used</p>
+              <div className="border rounded-lg p-3 text-xs space-y-1 max-h-[250px] overflow-y-auto bg-white shadow-inner">
+                {tools?.inventory.map((i) => (
+                  <div key={i.id} className="flex justify-between items-center py-2 border-b last:border-0 hover:bg-gray-50 px-1 rounded transition">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-gray-800">{i.name}</span>
+                      <span className="text-[9px] text-gray-400 uppercase tracking-tighter">Stock: {i.stock} {i.unit}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => setUsedInv({...usedInv, [i.id]: Math.max(0, (usedInv[i.id]||0)-1)})} 
+                        className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition"
+                      >
+                        -
+                      </button>
+                      <span className={`w-6 text-center font-bold ${usedInv[i.id] > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                        {usedInv[i.id] || 0}
+                      </span>
+                      <button 
+                        onClick={() => setUsedInv({...usedInv, [i.id]: (usedInv[i.id]||0)+1})} 
+                        className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">Clinical Notes</p>
+              <textarea
+                placeholder="Findings, complications, advice given..."
+                className="w-full border rounded-lg p-3 h-28 text-sm bg-white focus:ring-2 focus:ring-blue-100 outline-none transition shadow-inner"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t pt-3">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded">
+        <div className="flex justify-end gap-3 border-t pt-4">
+          <button 
+            onClick={onClose} 
+            className="px-6 py-2 text-sm font-bold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+          >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            disabled={isSaving}
-            className="bg-pink-600 text-white px-6 py-2 rounded font-bold text-sm hover:bg-pink-700 disabled:opacity-50"
+            disabled={isSaving || procList.length === 0}
+            className="bg-pink-600 text-white px-8 py-2.5 rounded-lg font-black text-sm hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-pink-100 transition-all uppercase tracking-wider"
           >
-            {isSaving ? "Finalizing..." : "Complete Treatment"}
+            {isSaving ? "Finalizing Session..." : "Finalize Treatment"}
           </button>
         </div>
       </div>
@@ -944,7 +1010,9 @@ function BillingOverviewSection({ onSelectBill }: { onSelectBill: (id: string) =
   const fetchBills = async () => {
     setLoading(true);
     const res = await getAllBillingAction(filter as any);
-    if (res.success) setBills((res.data as BillingRecord[]) || []);
+    if (res.success && res.data) {
+      setBills(res.data as BillingRecord[]);
+    }
     setLoading(false);
   };
 
@@ -1012,7 +1080,7 @@ function ServiceCatalogSection() {
 
   const fetchServices = async () => {
     const res = await getAllServicesAction();
-    if (res.success) setServices(res.data || []);
+    if (res.success && res.data) setServices(res.data as DentalService[]);
   };
 
   useEffect(() => {
@@ -1607,7 +1675,7 @@ function ClinicScheduleSection() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     getClinicScheduleAction(date).then((res) => {
-      if (res.success && res.data) setSchedule(res.data);
+      if (res.success && res.data) setSchedule(res.data as AppointmentWithPatient[]);
       setLoading(false);
     });
   }, [date]);
@@ -1615,7 +1683,7 @@ function ClinicScheduleSection() {
   useEffect(() => {
     refresh();
     getDentistListAction().then((res) => {
-      if (res.success && res.data) setDentists(res.data as any);
+      if (res.success && res.data) setDentists(res.data as UserProfile[]);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
@@ -2043,7 +2111,9 @@ function PatientDirectorySection() {
 
   useEffect(() => {
     getPatientListAction().then((res) => {
-      if (res.success && res.data) setPatients(res.data as UserProfile[]);
+      if (res.success && res.data) {
+        setPatients(res.data as UserProfile[]);
+      }
       setLoading(false);
     });
   }, []);

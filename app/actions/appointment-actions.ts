@@ -392,7 +392,7 @@ export async function rescheduleAppointmentAction(
 export async function recordPaymentAction(
   appointmentId: string,
   method: string,
-  amount: number,
+  amount?: number,
   itemIds: string[] = []
 ) {
   const { auth } = await import("@/lib/firebase/firebase");
@@ -408,37 +408,28 @@ export async function recordPaymentAction(
   if (!parsed.success)
     return { success: false, error: "Invalid payment method" };
 
-  // For backward compatibility, if amount is not provided, we need to fetch the total bill
-  // But processPayment logic handles partials. 
-  // If the UI calls this without amount, we assume they are paying the Full Balance.
-  // We'll let the service handle validation, but here we ideally need the amount.
-  // Since the old UI didn't send amount, we default to a placeholder or fetch.
-  // Let's rely on the service fetching if needed, OR force the UI to send it.
-  
-  // CRITICAL: The old UI calls this with just (id, method).
-  // We need to fetch the bill to know what "Full Payment" is.
-  // For now, let's update the signature to accept amount, but default to 0 which will fail validation
-  // unless we fetch the bill here.
-  
-  // Strategy: If amount is missing, we fetch the billing record to get the remaining balance.
+  // For backward compatibility, if amount is not provided, we fetch the bill to pay in full.
   let paymentAmount = amount;
   if (!paymentAmount) {
-     const { getBillingDetails } = await import("@/lib/services/billing-service");
-     const bill = await getBillingDetails(appointmentId);
-     if (bill.success && bill.data) {
-        paymentAmount = bill.data.remainingBalance;
-     } else {
-        return { success: false, error: "Could not determine payment amount" };
-     }
+    const { getBillingDetails } = await import(
+      "@/lib/services/billing-service"
+    );
+    const bill = await getBillingDetails(appointmentId);
+    if (bill.success && bill.data) {
+      paymentAmount = bill.data.remainingBalance;
+    } else {
+      return { success: false, error: "Could not determine payment amount" };
+    }
   }
 
- return await processPayment(
-  appointmentId,
-  amount,
-  method,
-  auth.currentUser.uid,
-  itemIds
-);
+  if (paymentAmount <= 0) return { success: true }; // Nothing to pay
+
+  return await processPayment(
+    appointmentId,
+    paymentAmount,
+    method,
+    auth.currentUser.uid
+  );
 }
 
 

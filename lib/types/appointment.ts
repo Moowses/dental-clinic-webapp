@@ -2,9 +2,16 @@ import { Timestamp } from "firebase/firestore";
 
 export type AppointmentStatus = "pending" | "confirmed" | "completed" | "cancelled";
 
+export interface TreatmentProcedure {
+  id: string; // Original ID (if from catalog) or random (if custom)
+  name: string; 
+  price: number;
+  toothNumber?: string; // Optional: e.g. "14", "UL", "All"
+}
+
 export interface TreatmentRecord {
   notes: string;
-  procedures: { id: string; name: string; price: number }[];
+  procedures: TreatmentProcedure[];
   inventoryUsed: { id: string; name: string; quantity: number }[];
   totalBill: number;
   completedAt: Timestamp;
