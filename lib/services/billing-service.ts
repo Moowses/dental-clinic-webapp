@@ -543,3 +543,86 @@ export async function getBillingRecordsByPatient(
     return { success: false, error: "Failed to fetch bills by patient" };
   }
 }
+
+export async function recordBillingPayment(input: {
+  appointmentId: string;
+  amount: number;
+  method: string;
+  note?: string;
+  itemIds?: string[];
+  staffId?: string;
+}) {
+  return await processPayment(
+    input.appointmentId,
+    input.amount,
+    input.method,
+    input.staffId,
+    Array.isArray(input.itemIds) ? input.itemIds : []
+  );
+}
+
+// new name used by some UI code (itemId included but legacy model is appointment-level plan)
+export async function createItemInstallmentPlan(
+  appointmentId: string,
+  itemId: string,
+  months: number,
+  description?: string
+) {
+  // Legacy model: plan saved at billing.paymentPlan and item status set to "plan"
+  // We will create a schedule for the selected item only.
+  const safeMonths = Number(months);
+  if (!Number.isFinite(safeMonths) || safeMonths < 1 || safeMonths > 36) {
+    return { success: false, error: "Invalid months. Must be 1–36." };
+  }
+
+  const details = await getBillingDetails(appointmentId);
+  if (!details.success || !details.data) return { success: false, error: "Bill not found" };
+
+  const bill = details.data as any;
+  const items = Array.isArray(bill.items) ? bill.items : [];
+  const target = items.find((x: any) => x.id === itemId);
+  if (!target) return { success: false, error: "Item not found" };
+
+  const planTotal = Number(target.price || 0);
+  if (!Number.isFinite(planTotal) || planTotal <= 0) {
+    return { success: false, error: "Invalid item price" };
+  }
+
+  const rawPerMonth = planTotal / safeMonths;
+  const amountPerMonth = Math.floor(rawPerMonth * 100) / 100;
+
+  const installments: BillingInstallment[] = [];
+  let due = new Date();
+
+  for (let i = 0; i < safeMonths; i++) {
+    due = new Date(due);
+    due.setMonth(due.getMonth() + 1);
+
+    const amt =
+      i === safeMonths - 1
+        ? Number((planTotal - amountPerMonth * (safeMonths - 1)).toFixed(2))
+        : amountPerMonth;
+
+    installments.push({
+      id: crypto.randomUUID(),
+      dueDate: due.toISOString().split("T")[0],
+      amount: amt,
+      status: "pending",
+      description: `${description || target.name} • Installment ${i + 1} of ${safeMonths}`,
+    } as any);
+  }
+
+  return await setupPaymentPlan(appointmentId, installments, [itemId]);
+}
+
+// new name used by some code (itemId param included for future upgrade)
+export async function payItemInstallment(
+  appointmentId: string,
+  itemId: string,
+  installmentId: string,
+  method: string,
+  staffId?: string
+) {
+  // Legacy service pays by installmentId only
+  return await payInstallment(appointmentId, installmentId, method, staffId);
+}

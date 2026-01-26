@@ -1,14 +1,24 @@
 import { getUserProfile } from "@/lib/services/user-service";
-import { getBillingDetails, setupPaymentPlan } from "@/lib/services/billing-service";
+import {
+  getBillingDetails,
+  setupPaymentPlan,
+  getAllBillingRecords,
+  getBillingRecordsByPatient,
+  processPayment,
+  payInstallment,
+} from "@/lib/services/billing-service";
 import { BillingInstallment, BillingRecord } from "@/lib/types/billing";
 
+/**
+ * Get billing details for ONE appointment
+ */
 export async function getBillingDetailsAction(
   appointmentId: string
 ): Promise<{ success: boolean; data?: BillingRecord; error?: string; isVirtual?: boolean }> {
   const { auth } = await import("@/lib/firebase/firebase");
   if (!auth.currentUser) return { success: false, error: "Not authenticated" };
 
-  // Ideally check if user owns appointment OR is staff
+  // Keep your existing behavior
   return await getBillingDetails(appointmentId);
 }
 
@@ -19,6 +29,10 @@ function isExcludedFromBalance(status: BillableStatus) {
   return s === "paid" || s === "void" || s === "waived";
 }
 
+/**
+ * LEGACY: Creates plan at appointment-level (paymentPlan.installments)
+ * and marks selected items as "plan"
+ */
 export async function createPaymentPlanAction(
   appointmentId: string,
   months: number,
@@ -41,13 +55,8 @@ export async function createPaymentPlanAction(
   if (!billRes.success || !billRes.data) return { success: false, error: "Bill not found" };
 
   const bill = billRes.data;
-
-  // If no billable items exist, fallback to remainingBalance behavior (legacy)
   const items = Array.isArray((bill as any).items) ? ((bill as any).items as any[]) : [];
 
-  // Determine which IDs should be planned:
-  // - if selectedItemIds provided: only those
-  // - else: all items that are NOT excluded (unpaid + plan)
   const eligibleIds =
     selectedItemIds.length > 0
       ? selectedItemIds
@@ -55,17 +64,14 @@ export async function createPaymentPlanAction(
           .filter((it) => !isExcludedFromBalance(it.status as BillableStatus))
           .map((it) => it.id);
 
-  // Compute plan total
   let planTotal = 0;
 
   if (items.length > 0) {
-    // Sum only the items included in eligibleIds, but ignore excluded statuses
     planTotal = items
       .filter((it) => eligibleIds.includes(it.id))
       .filter((it) => !isExcludedFromBalance(it.status as BillableStatus))
       .reduce((sum, it) => sum + Number(it.price || 0), 0);
   } else {
-    // Legacy fallback: use remainingBalance
     planTotal = Number((bill as any).remainingBalance || 0);
   }
 
@@ -73,7 +79,6 @@ export async function createPaymentPlanAction(
     return { success: false, error: "No balance to split" };
   }
 
-  // Installments
   const rawPerMonth = planTotal / safeMonths;
   const amountPerMonth = Math.floor(rawPerMonth * 100) / 100;
 
@@ -94,15 +99,18 @@ export async function createPaymentPlanAction(
       dueDate: due.toISOString().split("T")[0],
       amount: amt,
       status: "pending",
-    });
+      // Optional description (helps UI)
+      description: `Installment ${i + 1} of ${safeMonths}`,
+    } as any);
   }
 
-  // IMPORTANT:
-  // setupPaymentPlan currently accepts only (appointmentId, installments, selectedItemIds)
-  // We pass the computed IDs (eligibleIds) so the service can mark those items as "plan".
+  // Uses your real service function
   return await setupPaymentPlan(appointmentId, installments, eligibleIds);
 }
 
+/**
+ * Get all billing records (admin)
+ */
 export async function getAllBillingAction(
   filter: "paid" | "unpaid" | "partial" | "all" = "all"
 ): Promise<{ success: boolean; data?: BillingRecord[]; error?: string }> {
@@ -114,10 +122,12 @@ export async function getAllBillingAction(
     return { success: false, error: "Unauthorized: Staff only" };
   }
 
-  const { getAllBillingRecords } = await import("@/lib/services/billing-service");
   return await getAllBillingRecords(filter);
 }
 
+/**
+ * LEGACY installment payment (appointmentId + installmentId)
+ */
 export async function payInstallmentAction(
   appointmentId: string,
   installmentId: string,
@@ -131,10 +141,27 @@ export async function payInstallmentAction(
     return { success: false, error: "Unauthorized: Staff only" };
   }
 
-  const { payInstallment } = await import("@/lib/services/billing-service");
   return await payInstallment(appointmentId, installmentId, method, auth.currentUser.uid);
 }
 
+/**
+ * NEW (compat): Installment payment signature used by your new UI
+ * (appointmentId + itemId + installmentId + method)
+ * - service still pays by installmentId, so itemId is ignored (for now)
+ */
+export async function payItemInstallmentAction(
+  appointmentId: string,
+  itemId: string,
+  installmentId: string,
+  method: string
+) {
+  // itemId is currently not needed by the legacy service data model
+  return await payInstallmentAction(appointmentId, installmentId, method);
+}
+
+/**
+ * Billing records by patient (admin)
+ */
 export async function getBillingByPatientAction(
   patientId: string,
   filter: "paid" | "unpaid" | "partial" | "all" = "all"
@@ -147,6 +174,55 @@ export async function getBillingByPatientAction(
     return { success: false, error: "Unauthorized: Staff only" };
   }
 
-  const { getBillingRecordsByPatient } = await import("@/lib/services/billing-service");
   return await getBillingRecordsByPatient(patientId, filter);
+}
+
+/**
+ * NEW: Payment recorder used by the new BillingPaymentPlansPanel
+ * - uses processPayment (existing service)
+ */
+export async function recordBillingPaymentAction(input: {
+  appointmentId: string;
+  amount: number;
+  method: string;
+  note?: string;
+  itemIds?: string[];
+}) {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+
+  const profile = await getUserProfile(auth.currentUser.uid);
+  if (!profile.success || !profile.data || profile.data.role === "client") {
+    return { success: false, error: "Unauthorized: Staff only" };
+  }
+
+  return await processPayment(
+    input.appointmentId,
+    Number(input.amount || 0),
+    String(input.method || "cash"),
+    auth.currentUser.uid,
+    Array.isArray(input.itemIds) ? input.itemIds : []
+  );
+}
+export async function createItemPaymentPlanAction(input: {
+  appointmentId: string;
+  itemId: string;
+  terms: number;
+  description?: string;
+}) {
+  // If your service already has createItemInstallmentPlan wrapper (from our previous patch),
+  // call it. Otherwise fallback to legacy createPaymentPlanAction.
+  try {
+    const { createItemInstallmentPlan } = await import("@/lib/services/billing-service");
+    const res = await createItemInstallmentPlan(
+      input.appointmentId,
+      input.itemId,
+      input.terms,
+      input.description || ""
+    );
+    return res?.success === false ? res : { success: true };
+  } catch {
+    // fallback: create plan using legacy function (months = terms) for the single item
+    return await createPaymentPlanAction(input.appointmentId, input.terms, [input.itemId]);
+  }
 }
