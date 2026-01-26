@@ -391,11 +391,13 @@ function TreatmentModal({
                 Materials Used
               </p>
               <div className="border rounded-lg p-3 text-xs space-y-1 max-h-[250px] overflow-y-auto bg-white shadow-inner">
-                {tools?.inventory.map((i) => (
-                  <div
-                    key={i.id}
-                    className="flex justify-between items-center py-2 border-b last:border-0 hover:bg-gray-50 px-1 rounded transition"
-                  >
+                {tools?.inventory
+                  .filter((i) => i.category === "consumable")
+                  .map((i) => (
+                    <div
+                      key={i.id}
+                      className="flex justify-between items-center py-2 border-b last:border-0 hover:bg-gray-50 px-1 rounded transition"
+                    >
                     <div className="flex flex-col">
                       <span className="font-medium text-gray-800">
                         {i.name}
