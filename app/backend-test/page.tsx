@@ -4,8 +4,14 @@ import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
 import { useActionState, useEffect, useState, useCallback } from "react";
 import { createEmployeeAction } from "@/app/actions/admin-actions";
-import { getDentistListAction } from "@/app/actions/dentist-actions";
-import { updatePatientRecordAction, resendVerificationEmailAction } from "@/app/actions/auth-actions";
+import {
+  getDentistListAction,
+  updateDentistServicesAction,
+} from "@/app/actions/dentist-actions";
+import {
+  updatePatientRecordAction,
+  resendVerificationEmailAction,
+} from "@/app/actions/auth-actions";
 import {
   bookAppointmentAction,
   getAvailabilityAction,
@@ -17,7 +23,12 @@ import {
   CalendarAvailability,
   AppointmentWithPatient,
 } from "@/app/actions/appointment-actions";
-import { createProcedureAction } from "@/app/actions/clinic-actions";
+import {
+  createProcedureAction,
+  getClinicSettingsAction,
+  updateClinicSettingsAction,
+  updateProcedureAction,
+} from "@/app/actions/clinic-actions";
 import {
   addInventoryItemAction,
   adjustStockAction,
@@ -26,15 +37,15 @@ import {
   getTreatmentToolsAction,
   completeTreatmentAction,
 } from "@/app/actions/treatment-actions";
-import { 
-  getBillingDetailsAction, 
+import {
+  getBillingDetailsAction,
   createPaymentPlanAction,
-  getAllBillingAction 
+  getAllBillingAction,
 } from "@/app/actions/billing-actions";
-import { 
-  getAllServicesAction, 
-  createServiceAction, 
-  toggleServiceStatusAction 
+import {
+  getAllServicesAction,
+  createServiceAction,
+  toggleServiceStatusAction,
 } from "@/app/actions/service-actions";
 import { BillingRecord } from "@/lib/types/billing";
 import { DentalService } from "@/lib/types/service";
@@ -44,6 +55,7 @@ import {
 } from "../actions/patient-actions";
 
 import { getPatientRecord } from "@/lib/services/patient-service";
+import { getDentistProfile } from "@/lib/services/dentist-service";
 import { getUserAppointments } from "@/lib/services/appointment-service";
 import { searchPatients, getUserProfile } from "@/lib/services/user-service";
 import { getAllProcedures } from "@/lib/services/clinic-service";
@@ -97,7 +109,7 @@ function PatientDetailsModal({
         if (profileRes.success && profileRes.data)
           setDisplayName(profileRes.data.displayName || "");
         setLoading(false);
-      }
+      },
     );
   }, [patientId]);
 
@@ -152,13 +164,23 @@ function TreatmentModal({
   onComplete: () => void;
 }) {
   const [tools, setTools] = useState<{
-    procedures: (DentalProcedure & { requiredInventory?: { inventoryItemId: string; quantity: number }[] })[];
+    procedures: (DentalProcedure & {
+      requiredInventory?: { inventoryItemId: string; quantity: number }[];
+    })[];
     inventory: InventoryItem[];
   } | null>(null);
-  
+
   // Custom Procedure List state
-  const [procList, setProcList] = useState<{ id: string; name: string; price: number; toothNumber: string; isCustom: boolean }[]>([]);
-  
+  const [procList, setProcList] = useState<
+    {
+      id: string;
+      name: string;
+      price: number;
+      toothNumber: string;
+      isCustom: boolean;
+    }[]
+  >([]);
+
   const [usedInv, setUsedInv] = useState<{ [id: string]: number }>({});
   const [notes, setNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -170,27 +192,50 @@ function TreatmentModal({
   }, []);
 
   const addProcedure = (p: any) => {
-    setProcList([...procList, { id: p.id, name: p.name, price: p.basePrice, toothNumber: "", isCustom: false }]);
-    
+    setProcList([
+      ...procList,
+      {
+        id: p.id,
+        name: p.name,
+        price: p.basePrice,
+        toothNumber: "",
+        isCustom: false,
+      },
+    ]);
+
     // Auto-populate required inventory if present
     if (p.requiredInventory && p.requiredInventory.length > 0) {
       const newUsedInv = { ...usedInv };
       p.requiredInventory.forEach((item: any) => {
-        newUsedInv[item.inventoryItemId] = (newUsedInv[item.inventoryItemId] || 0) + item.quantity;
+        newUsedInv[item.inventoryItemId] =
+          (newUsedInv[item.inventoryItemId] || 0) + item.quantity;
       });
       setUsedInv(newUsedInv);
     }
   };
 
   const addCustomProcedure = () => {
-    setProcList([...procList, { id: crypto.randomUUID(), name: "Custom Procedure", price: 0, toothNumber: "", isCustom: true }]);
+    setProcList([
+      ...procList,
+      {
+        id: crypto.randomUUID(),
+        name: "Custom Procedure",
+        price: 0,
+        toothNumber: "",
+        isCustom: true,
+      },
+    ]);
   };
 
   const removeProcedure = (index: number) => {
     setProcList(procList.filter((_, i) => i !== index));
   };
 
-  const updateProcedure = (index: number, field: 'name' | 'price' | 'toothNumber', value: any) => {
+  const updateProcedure = (
+    index: number,
+    field: "name" | "price" | "toothNumber",
+    value: any,
+  ) => {
     const newList = [...procList];
     newList[index] = { ...newList[index], [field]: value };
     setProcList(newList);
@@ -200,15 +245,17 @@ function TreatmentModal({
     setIsSaving(true);
     const res = await completeTreatmentAction(appointment.id, {
       notes,
-      procedures: procList.map(p => ({ 
-        id: p.id, 
-        name: p.name, 
+      procedures: procList.map((p) => ({
+        id: p.id,
+        name: p.name,
         price: Number(p.price),
-        toothNumber: p.toothNumber 
+        toothNumber: p.toothNumber,
       })),
-      inventoryUsed: tools?.inventory
-        .filter((i) => usedInv[i.id] > 0)
-        .map((i) => ({ id: i.id, name: i.name, quantity: usedInv[i.id] })) || [],
+      inventoryUsed:
+        tools?.inventory
+          .filter((i) => usedInv[i.id] > 0)
+          .map((i) => ({ id: i.id, name: i.name, quantity: usedInv[i.id] })) ||
+        [],
     });
     if (res.success) {
       onComplete();
@@ -225,28 +272,37 @@ function TreatmentModal({
         <h3 className="font-bold border-b pb-2 text-lg">
           Record Treatment: {appointment.serviceType}
         </h3>
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* LEFT: Procedures */}
           <div className="space-y-2">
-            <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">Procedures Performed</p>
-            
+            <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">
+              Procedures Performed
+            </p>
+
             {/* Catalog Selector */}
             <div className="flex gap-2 mb-2">
-              <select 
+              <select
                 className="text-xs p-2 border rounded flex-1 bg-white"
                 onChange={(e) => {
-                  const p = tools?.procedures.find(proc => proc.id === e.target.value);
+                  const p = tools?.procedures.find(
+                    (proc) => proc.id === e.target.value,
+                  );
                   if (p) addProcedure(p);
                   e.target.value = ""; // Reset
                 }}
               >
                 <option value="">+ Add from Catalog...</option>
-                {tools?.procedures.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} (${p.basePrice})</option>
+                {tools?.procedures.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} (${p.basePrice})
+                  </option>
                 ))}
               </select>
-              <button onClick={addCustomProcedure} className="bg-blue-50 text-blue-600 px-3 rounded text-xs font-bold hover:bg-blue-100 transition">
+              <button
+                onClick={addCustomProcedure}
+                className="bg-blue-50 text-blue-600 px-3 rounded text-xs font-bold hover:bg-blue-100 transition"
+              >
                 + Custom
               </button>
             </div>
@@ -256,20 +312,27 @@ function TreatmentModal({
               {procList.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-32 text-gray-400">
                   <p className="text-sm italic">No procedures added yet.</p>
-                  <p className="text-[10px]">Select from catalog or add a custom entry</p>
+                  <p className="text-[10px]">
+                    Select from catalog or add a custom entry
+                  </p>
                 </div>
               )}
               {procList.map((p, idx) => (
-                <div key={idx} className="flex flex-col gap-2 bg-white p-3 rounded-md border shadow-sm relative group">
+                <div
+                  key={idx}
+                  className="flex flex-col gap-2 bg-white p-3 rounded-md border shadow-sm relative group"
+                >
                   <div className="flex gap-2 items-center">
-                    <input 
-                      value={p.name} 
-                      onChange={(e) => updateProcedure(idx, 'name', e.target.value)}
+                    <input
+                      value={p.name}
+                      onChange={(e) =>
+                        updateProcedure(idx, "name", e.target.value)
+                      }
                       className="flex-1 text-xs font-bold p-1.5 border-b focus:border-blue-500 outline-none"
                       placeholder="Procedure Name"
                     />
-                    <button 
-                      onClick={() => removeProcedure(idx)} 
+                    <button
+                      onClick={() => removeProcedure(idx)}
                       className="text-gray-300 hover:text-red-500 transition-colors font-bold text-lg"
                     >
                       ×
@@ -277,20 +340,28 @@ function TreatmentModal({
                   </div>
                   <div className="flex gap-4">
                     <div className="flex-1">
-                      <label className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Tooth #</label>
-                      <input 
-                        value={p.toothNumber} 
-                        onChange={(e) => updateProcedure(idx, 'toothNumber', e.target.value)}
+                      <label className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">
+                        Tooth #
+                      </label>
+                      <input
+                        value={p.toothNumber}
+                        onChange={(e) =>
+                          updateProcedure(idx, "toothNumber", e.target.value)
+                        }
                         className="w-full text-xs p-1 border rounded"
                         placeholder="e.g. 14, UL, All"
                       />
                     </div>
                     <div className="w-24">
-                      <label className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Price ($)</label>
-                      <input 
+                      <label className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">
+                        Price ($)
+                      </label>
+                      <input
                         type="number"
-                        value={p.price} 
-                        onChange={(e) => updateProcedure(idx, 'price', e.target.value)}
+                        value={p.price}
+                        onChange={(e) =>
+                          updateProcedure(idx, "price", e.target.value)
+                        }
                         className="w-full text-xs p-1 border rounded text-right font-mono"
                         placeholder="0.00"
                       />
@@ -299,11 +370,16 @@ function TreatmentModal({
                 </div>
               ))}
             </div>
-            
+
             <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex justify-between items-center mt-2">
-              <span className="text-blue-800 text-xs font-bold uppercase">Estimated Total</span>
+              <span className="text-blue-800 text-xs font-bold uppercase">
+                Estimated Total
+              </span>
               <span className="text-lg font-black text-blue-900 font-mono">
-                ${procList.reduce((sum, p) => sum + Number(p.price || 0), 0).toLocaleString()}
+                $
+                {procList
+                  .reduce((sum, p) => sum + Number(p.price || 0), 0)
+                  .toLocaleString()}
               </span>
             </div>
           </div>
@@ -311,26 +387,47 @@ function TreatmentModal({
           {/* RIGHT: Inventory & Notes */}
           <div className="space-y-4">
             <div className="space-y-2">
-              <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">Materials Used</p>
+              <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">
+                Materials Used
+              </p>
               <div className="border rounded-lg p-3 text-xs space-y-1 max-h-[250px] overflow-y-auto bg-white shadow-inner">
                 {tools?.inventory.map((i) => (
-                  <div key={i.id} className="flex justify-between items-center py-2 border-b last:border-0 hover:bg-gray-50 px-1 rounded transition">
+                  <div
+                    key={i.id}
+                    className="flex justify-between items-center py-2 border-b last:border-0 hover:bg-gray-50 px-1 rounded transition"
+                  >
                     <div className="flex flex-col">
-                      <span className="font-medium text-gray-800">{i.name}</span>
-                      <span className="text-[9px] text-gray-400 uppercase tracking-tighter">Stock: {i.stock} {i.unit}</span>
+                      <span className="font-medium text-gray-800">
+                        {i.name}
+                      </span>
+                      <span className="text-[9px] text-gray-400 uppercase tracking-tighter">
+                        Stock: {i.stock} {i.unit}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => setUsedInv({...usedInv, [i.id]: Math.max(0, (usedInv[i.id]||0)-1)})} 
+                      <button
+                        onClick={() =>
+                          setUsedInv({
+                            ...usedInv,
+                            [i.id]: Math.max(0, (usedInv[i.id] || 0) - 1),
+                          })
+                        }
                         className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition"
                       >
                         -
                       </button>
-                      <span className={`w-6 text-center font-bold ${usedInv[i.id] > 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                      <span
+                        className={`w-6 text-center font-bold ${usedInv[i.id] > 0 ? "text-blue-600" : "text-gray-400"}`}
+                      >
                         {usedInv[i.id] || 0}
                       </span>
-                      <button 
-                        onClick={() => setUsedInv({...usedInv, [i.id]: (usedInv[i.id]||0)+1})} 
+                      <button
+                        onClick={() =>
+                          setUsedInv({
+                            ...usedInv,
+                            [i.id]: (usedInv[i.id] || 0) + 1,
+                          })
+                        }
                         className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition"
                       >
                         +
@@ -340,9 +437,11 @@ function TreatmentModal({
                 ))}
               </div>
             </div>
-            
+
             <div className="space-y-2">
-              <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">Clinical Notes</p>
+              <p className="font-bold text-xs text-gray-500 uppercase tracking-widest">
+                Clinical Notes
+              </p>
               <textarea
                 placeholder="Findings, complications, advice given..."
                 className="w-full border rounded-lg p-3 h-28 text-sm bg-white focus:ring-2 focus:ring-blue-100 outline-none transition shadow-inner"
@@ -354,8 +453,8 @@ function TreatmentModal({
         </div>
 
         <div className="flex justify-end gap-3 border-t pt-4">
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="px-6 py-2 text-sm font-bold text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
           >
             Cancel
@@ -482,7 +581,10 @@ function PatientEditForm({
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [status, setStatus] = useState<{ success: boolean; message?: string } | null>(null);
+  const [status, setStatus] = useState<{
+    success: boolean;
+    message?: string;
+  } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -492,14 +594,14 @@ function PatientEditForm({
         if (profileRes.success && profileRes.data)
           setDisplayName(profileRes.data.displayName || "");
         setLoading(false);
-      }
+      },
     );
   }, [patientId]);
 
   const handleUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSaving(true);
-    
+
     const formData = new FormData(e.currentTarget);
     const data = Object.fromEntries(formData);
 
@@ -509,14 +611,14 @@ function PatientEditForm({
         name: {
           first_name: data.firstName || "",
           last_name: data.lastName || "",
-          middle_initial: data.middleInitial || ""
+          middle_initial: data.middleInitial || "",
         },
         nickname: data.nickname || "",
         birthdate: data.dateOfBirth || "",
         sex: data.sex || "male",
         religion: data.religion || "",
         nationality: data.nationality || "",
-        effective_date: new Date().toISOString().split('T')[0]
+        effective_date: new Date().toISOString().split("T")[0],
       },
       contact_information: {
         home_address: data.address || "",
@@ -524,56 +626,59 @@ function PatientEditForm({
         mobile_no: data.phoneNumber || "",
         office_no: data.officeNo || "",
         fax_no: data.faxNo || "",
-        email_address: data.emailAddress || record?.registration?.contact_information?.email_address || ""
+        email_address:
+          data.emailAddress ||
+          record?.registration?.contact_information?.email_address ||
+          "",
       },
       employment_information: {
-        occupation: data.occupation || ""
+        occupation: data.occupation || "",
       },
       minor_details: {
         is_minor: data.isMinor === "on",
         parent_guardian_name: data.guardianName || "",
-        parent_guardian_occupation: data.guardianOccupation || ""
+        parent_guardian_occupation: data.guardianOccupation || "",
       },
       dental_history: {
         previous_dentist: data.previousDentist || "",
-        last_dental_visit: data.lastDentalVisit || ""
+        last_dental_visit: data.lastDentalVisit || "",
       },
       referral_details: {
         referred_by: data.referredBy || "",
-        reason_for_consultation: data.consultationReason || ""
+        reason_for_consultation: data.consultationReason || "",
       },
       medical_history: {
         physician: {
           name: data.physicianName || "",
           specialty: data.physicianSpecialty || "",
           office_address: data.physicianOffice || "",
-          office_number: data.physicianNumber || ""
+          office_number: data.physicianNumber || "",
         },
         vitals: {
           blood_type: data.bloodType || "",
           blood_pressure: data.bloodPressure || "",
-          bleeding_time: data.bleedingTime || ""
+          bleeding_time: data.bleedingTime || "",
         },
         general_health_screening: {
           in_good_health: data.inGoodHealth === "on",
           under_medical_condition: {
             status: data.underMedicalCondition === "on",
-            condition_description: data.conditionDesc || ""
+            condition_description: data.conditionDesc || "",
           },
           serious_illness_or_surgery: {
             status: data.seriousIllness === "on",
-            details: data.illnessDetails || ""
+            details: data.illnessDetails || "",
           },
           hospitalized: {
             status: data.hospitalized === "on",
-            when_and_why: data.hospitalizedDetails || ""
+            when_and_why: data.hospitalizedDetails || "",
           },
           taking_medication: {
             status: data.takingMeds === "on",
-            medication_list: data.medicationList || ""
+            medication_list: data.medicationList || "",
           },
           uses_tobacco: data.usesTobacco === "on",
-          uses_alcohol_or_drugs: data.usesDrugs === "on"
+          uses_alcohol_or_drugs: data.usesDrugs === "on",
         },
         allergies: {
           local_anesthetic: data.allergyAnaesthetic === "on",
@@ -581,19 +686,28 @@ function PatientEditForm({
           sulfa_drugs: data.allergySulfa === "on",
           aspirin: data.allergyAspirin === "on",
           latex: data.allergyLatex === "on",
-          others: data.allergyOthers || ""
+          others: data.allergyOthers || "",
         },
         women_only: {
           is_pregnant: data.isPregnant === "on",
           is_nursing: data.isNursing === "on",
-          taking_birth_control: data.birthControl === "on"
+          taking_birth_control: data.birthControl === "on",
         },
-        conditions_checklist: (data.conditions as string)?.split(",").map(s => s.trim()).filter(Boolean) || []
+        conditions_checklist:
+          (data.conditions as string)
+            ?.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean) || [],
       },
-      authorization: record?.registration?.authorization || { signature_present: false }
+      authorization: record?.registration?.authorization || {
+        signature_present: false,
+      },
     };
 
-    const res = await submitPatientRegistrationAction(patientId, structuredData);
+    const res = await submitPatientRegistrationAction(
+      patientId,
+      structuredData,
+    );
     setIsSaving(false);
     if (res.success) {
       setStatus({ success: true });
@@ -608,124 +722,405 @@ function PatientEditForm({
   const reg = record?.registration;
 
   return (
-    <form onSubmit={handleUpdate} className="space-y-3 max-h-[60vh] overflow-y-auto p-1">
+    <form
+      onSubmit={handleUpdate}
+      className="space-y-3 max-h-[60vh] overflow-y-auto p-1"
+    >
       <input type="hidden" name="targetUid" value={patientId} />
-      
+
       {/* Name Section */}
       <div className="grid grid-cols-4 gap-2">
-        <input name="firstName" defaultValue={reg?.personal_information?.name?.first_name || displayName.split(" ")[0]} className="col-span-2 w-full p-2 border rounded text-sm" placeholder="First Name" required />
-        <input name="middleInitial" defaultValue={reg?.personal_information?.name?.middle_initial} className="w-full p-2 border rounded text-sm" placeholder="M.I." />
-        <input name="lastName" defaultValue={reg?.personal_information?.name?.last_name || displayName.split(" ").slice(1).join(" ")} className="w-full p-2 border rounded text-sm" placeholder="Last Name" required />
+        <input
+          name="firstName"
+          defaultValue={
+            reg?.personal_information?.name?.first_name ||
+            displayName.split(" ")[0]
+          }
+          className="col-span-2 w-full p-2 border rounded text-sm"
+          placeholder="First Name"
+          required
+        />
+        <input
+          name="middleInitial"
+          defaultValue={reg?.personal_information?.name?.middle_initial}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="M.I."
+        />
+        <input
+          name="lastName"
+          defaultValue={
+            reg?.personal_information?.name?.last_name ||
+            displayName.split(" ").slice(1).join(" ")
+          }
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Last Name"
+          required
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <input name="phoneNumber" defaultValue={reg?.contact_information?.mobile_no} className="w-full p-2 border rounded text-sm" placeholder="Mobile No." />
-        <input name="homeNo" defaultValue={reg?.contact_information?.home_no} className="w-full p-2 border rounded text-sm" placeholder="Home No." />
+        <input
+          name="phoneNumber"
+          defaultValue={reg?.contact_information?.mobile_no}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Mobile No."
+        />
+        <input
+          name="homeNo"
+          defaultValue={reg?.contact_information?.home_no}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Home No."
+        />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <input name="officeNo" defaultValue={reg?.contact_information?.office_no} className="w-full p-2 border rounded text-sm" placeholder="Office No." />
-        <input name="faxNo" defaultValue={reg?.contact_information?.fax_no} className="w-full p-2 border rounded text-sm" placeholder="Fax No." />
+        <input
+          name="officeNo"
+          defaultValue={reg?.contact_information?.office_no}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Office No."
+        />
+        <input
+          name="faxNo"
+          defaultValue={reg?.contact_information?.fax_no}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Fax No."
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <input name="occupation" defaultValue={reg?.employment_information?.occupation} className="w-full p-2 border rounded text-sm" placeholder="Occupation" />
-        <input name="nationality" defaultValue={reg?.personal_information?.nationality} className="w-full p-2 border rounded text-sm" placeholder="Nationality" />
+        <input
+          name="occupation"
+          defaultValue={reg?.employment_information?.occupation}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Occupation"
+        />
+        <input
+          name="nationality"
+          defaultValue={reg?.personal_information?.nationality}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Nationality"
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <input name="dateOfBirth" type="date" defaultValue={reg?.personal_information?.birthdate} className="w-full p-2 border rounded text-sm" />
-        <select name="sex" defaultValue={reg?.personal_information?.sex || "male"} className="w-full p-2 border rounded text-sm">
+        <input
+          name="dateOfBirth"
+          type="date"
+          defaultValue={reg?.personal_information?.birthdate}
+          className="w-full p-2 border rounded text-sm"
+        />
+        <select
+          name="sex"
+          defaultValue={reg?.personal_information?.sex || "male"}
+          className="w-full p-2 border rounded text-sm"
+        >
           <option value="male">Male</option>
           <option value="female">Female</option>
           <option value="other">Other</option>
         </select>
-        <input name="religion" defaultValue={reg?.personal_information?.religion} className="w-full p-2 border rounded text-sm" placeholder="Religion" />
+        <input
+          name="religion"
+          defaultValue={reg?.personal_information?.religion}
+          className="w-full p-2 border rounded text-sm"
+          placeholder="Religion"
+        />
       </div>
 
-      <input name="address" defaultValue={reg?.contact_information?.home_address} className="w-full p-2 border rounded text-sm" placeholder="Home Address" />
+      <input
+        name="address"
+        defaultValue={reg?.contact_information?.home_address}
+        className="w-full p-2 border rounded text-sm"
+        placeholder="Home Address"
+      />
 
       {/* Guardian & Dental */}
       <div className="bg-gray-50 p-2 rounded border border-gray-200 space-y-2">
-        <p className="text-xs font-bold text-gray-500 uppercase">Guardian & Dental</p>
+        <p className="text-xs font-bold text-gray-500 uppercase">
+          Guardian & Dental
+        </p>
         <div className="flex items-center gap-2">
-          <input type="checkbox" name="isMinor" defaultChecked={reg?.minor_details?.is_minor} />
+          <input
+            type="checkbox"
+            name="isMinor"
+            defaultChecked={reg?.minor_details?.is_minor}
+          />
           <label className="text-xs">Is Minor</label>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <input name="guardianName" defaultValue={reg?.minor_details?.parent_guardian_name} className="w-full p-1 border rounded text-xs" placeholder="Guardian Name" />
-          <input name="guardianOccupation" defaultValue={reg?.minor_details?.parent_guardian_occupation} className="w-full p-1 border rounded text-xs" placeholder="Guardian Job" />
+          <input
+            name="guardianName"
+            defaultValue={reg?.minor_details?.parent_guardian_name}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="Guardian Name"
+          />
+          <input
+            name="guardianOccupation"
+            defaultValue={reg?.minor_details?.parent_guardian_occupation}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="Guardian Job"
+          />
         </div>
         <div className="grid grid-cols-2 gap-2 mt-1">
-          <input name="previousDentist" defaultValue={reg?.dental_history?.previous_dentist} className="w-full p-1 border rounded text-xs" placeholder="Prev Dentist" />
-          <input name="lastDentalVisit" defaultValue={reg?.dental_history?.last_dental_visit} className="w-full p-1 border rounded text-xs" placeholder="Last Visit" />
+          <input
+            name="previousDentist"
+            defaultValue={reg?.dental_history?.previous_dentist}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="Prev Dentist"
+          />
+          <input
+            name="lastDentalVisit"
+            defaultValue={reg?.dental_history?.last_dental_visit}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="Last Visit"
+          />
         </div>
       </div>
 
       {/* Clinical Info */}
       <div className="bg-red-50 p-2 rounded border border-red-100 space-y-2">
-        <p className="text-xs font-bold text-red-800 uppercase">Medical History</p>
-        
+        <p className="text-xs font-bold text-red-800 uppercase">
+          Medical History
+        </p>
+
         {/* Physician */}
         <div className="grid grid-cols-2 gap-2">
-          <input name="physicianName" defaultValue={reg?.medical_history?.physician?.name} className="w-full p-1 border rounded text-xs" placeholder="Physician Name" />
-          <input name="physicianNumber" defaultValue={reg?.medical_history?.physician?.office_number} className="w-full p-1 border rounded text-xs" placeholder="Physician No." />
+          <input
+            name="physicianName"
+            defaultValue={reg?.medical_history?.physician?.name}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="Physician Name"
+          />
+          <input
+            name="physicianNumber"
+            defaultValue={reg?.medical_history?.physician?.office_number}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="Physician No."
+          />
         </div>
 
         {/* Vitals */}
         <div className="grid grid-cols-3 gap-2">
-          <input name="bloodType" defaultValue={reg?.medical_history?.vitals?.blood_type} className="w-full p-1 border rounded text-xs" placeholder="Blood Type" />
-          <input name="bloodPressure" defaultValue={reg?.medical_history?.vitals?.blood_pressure} className="w-full p-1 border rounded text-xs" placeholder="BP" />
-          <input name="bleedingTime" defaultValue={reg?.medical_history?.vitals?.bleeding_time} className="w-full p-1 border rounded text-xs" placeholder="Bleeding Time" />
+          <input
+            name="bloodType"
+            defaultValue={reg?.medical_history?.vitals?.blood_type}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="Blood Type"
+          />
+          <input
+            name="bloodPressure"
+            defaultValue={reg?.medical_history?.vitals?.blood_pressure}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="BP"
+          />
+          <input
+            name="bleedingTime"
+            defaultValue={reg?.medical_history?.vitals?.bleeding_time}
+            className="w-full p-1 border rounded text-xs"
+            placeholder="Bleeding Time"
+          />
         </div>
 
         {/* Screening Toggles */}
         <div className="grid grid-cols-2 gap-1 text-xs">
-          <label className="flex gap-1"><input type="checkbox" name="inGoodHealth" defaultChecked={reg?.medical_history?.general_health_screening?.in_good_health || false} /> Good Health?</label>
+          <label className="flex gap-1">
+            <input
+              type="checkbox"
+              name="inGoodHealth"
+              defaultChecked={
+                reg?.medical_history?.general_health_screening
+                  ?.in_good_health || false
+              }
+            />{" "}
+            Good Health?
+          </label>
           <div className="flex flex-col gap-1">
-             <label className="flex gap-1"><input type="checkbox" name="underMedicalCondition" defaultChecked={reg?.medical_history?.general_health_screening?.under_medical_condition?.status || false} /> Under Treatment</label>
-             <input name="conditionDesc" defaultValue={reg?.medical_history?.general_health_screening?.under_medical_condition?.condition_description} className="w-full p-1 border rounded text-[10px]" placeholder="Condition..." />
+            <label className="flex gap-1">
+              <input
+                type="checkbox"
+                name="underMedicalCondition"
+                defaultChecked={
+                  reg?.medical_history?.general_health_screening
+                    ?.under_medical_condition?.status || false
+                }
+              />{" "}
+              Under Treatment
+            </label>
+            <input
+              name="conditionDesc"
+              defaultValue={
+                reg?.medical_history?.general_health_screening
+                  ?.under_medical_condition?.condition_description
+              }
+              className="w-full p-1 border rounded text-[10px]"
+              placeholder="Condition..."
+            />
           </div>
           <div className="flex flex-col gap-1">
-             <label className="flex gap-1"><input type="checkbox" name="seriousIllness" defaultChecked={reg?.medical_history?.general_health_screening?.serious_illness_or_surgery?.status || false} /> Serious Illness</label>
-             <input name="illnessDetails" defaultValue={reg?.medical_history?.general_health_screening?.serious_illness_or_surgery?.details} className="w-full p-1 border rounded text-[10px]" placeholder="Details..." />
+            <label className="flex gap-1">
+              <input
+                type="checkbox"
+                name="seriousIllness"
+                defaultChecked={
+                  reg?.medical_history?.general_health_screening
+                    ?.serious_illness_or_surgery?.status || false
+                }
+              />{" "}
+              Serious Illness
+            </label>
+            <input
+              name="illnessDetails"
+              defaultValue={
+                reg?.medical_history?.general_health_screening
+                  ?.serious_illness_or_surgery?.details
+              }
+              className="w-full p-1 border rounded text-[10px]"
+              placeholder="Details..."
+            />
           </div>
           <div className="flex flex-col gap-1">
-             <label className="flex gap-1"><input type="checkbox" name="hospitalized" defaultChecked={reg?.medical_history?.general_health_screening?.hospitalized?.status || false} /> Hospitalized</label>
-             <input name="hospitalizedDetails" defaultValue={reg?.medical_history?.general_health_screening?.hospitalized?.when_and_why} className="w-full p-1 border rounded text-[10px]" placeholder="Why..." />
+            <label className="flex gap-1">
+              <input
+                type="checkbox"
+                name="hospitalized"
+                defaultChecked={
+                  reg?.medical_history?.general_health_screening?.hospitalized
+                    ?.status || false
+                }
+              />{" "}
+              Hospitalized
+            </label>
+            <input
+              name="hospitalizedDetails"
+              defaultValue={
+                reg?.medical_history?.general_health_screening?.hospitalized
+                  ?.when_and_why
+              }
+              className="w-full p-1 border rounded text-[10px]"
+              placeholder="Why..."
+            />
           </div>
           <div className="flex flex-col gap-1">
-             <label className="flex gap-1"><input type="checkbox" name="takingMeds" defaultChecked={reg?.medical_history?.general_health_screening?.taking_medication?.status || false} /> Taking Meds</label>
-             <input name="medicationList" defaultValue={reg?.medical_history?.general_health_screening?.taking_medication?.medication_list} className="w-full p-1 border rounded text-[10px]" placeholder="List..." />
+            <label className="flex gap-1">
+              <input
+                type="checkbox"
+                name="takingMeds"
+                defaultChecked={
+                  reg?.medical_history?.general_health_screening
+                    ?.taking_medication?.status || false
+                }
+              />{" "}
+              Taking Meds
+            </label>
+            <input
+              name="medicationList"
+              defaultValue={
+                reg?.medical_history?.general_health_screening
+                  ?.taking_medication?.medication_list
+              }
+              className="w-full p-1 border rounded text-[10px]"
+              placeholder="List..."
+            />
           </div>
-          <label className="flex gap-1"><input type="checkbox" name="usesTobacco" defaultChecked={reg?.medical_history?.general_health_screening?.uses_tobacco || false} /> Smoker</label>
-          <label className="flex gap-1"><input type="checkbox" name="usesDrugs" defaultChecked={reg?.medical_history?.general_health_screening?.uses_alcohol_or_drugs || false} /> Alcohol/Drugs</label>
+          <label className="flex gap-1">
+            <input
+              type="checkbox"
+              name="usesTobacco"
+              defaultChecked={
+                reg?.medical_history?.general_health_screening?.uses_tobacco ||
+                false
+              }
+            />{" "}
+            Smoker
+          </label>
+          <label className="flex gap-1">
+            <input
+              type="checkbox"
+              name="usesDrugs"
+              defaultChecked={
+                reg?.medical_history?.general_health_screening
+                  ?.uses_alcohol_or_drugs || false
+              }
+            />{" "}
+            Alcohol/Drugs
+          </label>
         </div>
 
         {/* Women Only */}
         <div className="bg-pink-50 p-2 rounded border border-pink-100">
           <p className="font-bold text-[10px] text-pink-500 mb-1">Women Only</p>
           <div className="flex gap-2 text-xs flex-wrap">
-            <label className="flex gap-1"><input type="checkbox" name="isPregnant" defaultChecked={reg?.medical_history?.women_only?.is_pregnant || false} /> Pregnant</label>
-            <label className="flex gap-1"><input type="checkbox" name="isNursing" defaultChecked={reg?.medical_history?.women_only?.is_nursing || false} /> Nursing</label>
-            <label className="flex gap-1"><input type="checkbox" name="birthControl" defaultChecked={reg?.medical_history?.women_only?.taking_birth_control || false} /> Birth Control</label>
+            <label className="flex gap-1">
+              <input
+                type="checkbox"
+                name="isPregnant"
+                defaultChecked={
+                  reg?.medical_history?.women_only?.is_pregnant || false
+                }
+              />{" "}
+              Pregnant
+            </label>
+            <label className="flex gap-1">
+              <input
+                type="checkbox"
+                name="isNursing"
+                defaultChecked={
+                  reg?.medical_history?.women_only?.is_nursing || false
+                }
+              />{" "}
+              Nursing
+            </label>
+            <label className="flex gap-1">
+              <input
+                type="checkbox"
+                name="birthControl"
+                defaultChecked={
+                  reg?.medical_history?.women_only?.taking_birth_control ||
+                  false
+                }
+              />{" "}
+              Birth Control
+            </label>
           </div>
         </div>
 
-        <input name="allergyOthers" defaultValue={reg?.medical_history?.allergies?.others} className="w-full p-1 border rounded text-xs" placeholder="Allergies (Text)" />
-        <textarea name="conditions" defaultValue={reg?.medical_history?.conditions_checklist?.join(", ")} className="w-full p-1 border rounded text-xs h-10" placeholder="Conditions (comma separated)" />
+        <input
+          name="allergyOthers"
+          defaultValue={reg?.medical_history?.allergies?.others}
+          className="w-full p-1 border rounded text-xs"
+          placeholder="Allergies (Text)"
+        />
+        <textarea
+          name="conditions"
+          defaultValue={reg?.medical_history?.conditions_checklist?.join(", ")}
+          className="w-full p-1 border rounded text-xs h-10"
+          placeholder="Conditions (comma separated)"
+        />
       </div>
 
-      <button disabled={isSaving} className={`w-full text-white py-2 rounded font-bold ${isSaving ? 'bg-gray-400' : 'bg-green-700'}`}>
+      <button
+        disabled={isSaving}
+        className={`w-full text-white py-2 rounded font-bold ${isSaving ? "bg-gray-400" : "bg-green-700"}`}
+      >
         {isSaving ? "Saving..." : "Save Patient Record"}
       </button>
-      
+
       {status && (
-        <p className={`text-center text-xs ${status.success ? 'text-green-600' : 'text-red-600'}`}>
+        <p
+          className={`text-center text-xs ${status.success ? "text-green-600" : "text-red-600"}`}
+        >
           {status.success ? "Update Successful" : status.message}
         </p>
       )}
-      
-      {onClose && <button type="button" onClick={onClose} className="w-full text-xs text-gray-500 mt-2">Close</button>}
+
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full text-xs text-gray-500 mt-2"
+        >
+          Close
+        </button>
+      )}
     </form>
   );
 }
@@ -753,7 +1148,10 @@ function PatientEditModal({
 
 function VerificationTestSection() {
   const { user } = useAuth();
-  const [status, setStatus] = useState<{ loading: boolean; message: string | null }>({
+  const [status, setStatus] = useState<{
+    loading: boolean;
+    message: string | null;
+  }>({
     loading: false,
     message: null,
   });
@@ -762,7 +1160,10 @@ function VerificationTestSection() {
     setStatus({ loading: true, message: "Sending..." });
     const res = await resendVerificationEmailAction();
     if (res.success) {
-      setStatus({ loading: false, message: "✅ Verification email sent! Check your inbox." });
+      setStatus({
+        loading: false,
+        message: "✅ Verification email sent! Check your inbox.",
+      });
     } else {
       setStatus({ loading: false, message: "❌ Error: " + res.error });
     }
@@ -776,18 +1177,21 @@ function VerificationTestSection() {
         <h3 className="font-bold text-amber-200 uppercase tracking-widest text-xs">
           Email Verification Status
         </h3>
-        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${user.emailVerified ? 'bg-green-500 text-white' : 'bg-red-500 text-white animate-pulse'}`}>
+        <span
+          className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${user.emailVerified ? "bg-green-500 text-white" : "bg-red-500 text-white animate-pulse"}`}
+        >
           {user.emailVerified ? "Verified" : "Unverified"}
         </span>
       </div>
-      
+
       {!user.emailVerified && (
         <div className="space-y-3">
           <p className="text-[10px] text-amber-100 opacity-80 leading-relaxed">
-            Your email is not verified. You can trigger a new verification link using the button below. 
-            Firebase will send a magic link to <strong>{user.email}</strong>.
+            Your email is not verified. You can trigger a new verification link
+            using the button below. Firebase will send a magic link to{" "}
+            <strong>{user.email}</strong>.
           </p>
-          <button 
+          <button
             onClick={handleResend}
             disabled={status.loading}
             className="w-full bg-amber-600 hover:bg-amber-700 disabled:bg-amber-800 text-white py-2 rounded font-bold text-xs transition"
@@ -848,7 +1252,11 @@ function BillingTestSection() {
   const handlePlan = async (months: number) => {
     if (!bill) return;
     setLoading(true);
-    const res = await createPaymentPlanAction(bill.appointmentId, months, selectedItems);
+    const res = await createPaymentPlanAction(
+      bill.appointmentId,
+      months,
+      selectedItems,
+    );
     setLoading(false);
     if (res.success) {
       alert("Plan created!");
@@ -865,13 +1273,16 @@ function BillingTestSection() {
       </h3>
 
       <div className="flex gap-2 mb-4">
-        <input 
-          value={appId} 
+        <input
+          value={appId}
           onChange={(e) => setAppId(e.target.value)}
           placeholder="Appointment ID"
           className="text-black text-xs p-2 rounded flex-1"
         />
-        <button onClick={loadBill} className="bg-emerald-600 px-4 rounded font-bold text-xs">
+        <button
+          onClick={loadBill}
+          className="bg-emerald-600 px-4 rounded font-bold text-xs"
+        >
           Load
         </button>
       </div>
@@ -885,10 +1296,17 @@ function BillingTestSection() {
               <p className="font-black text-lg">{bill.status.toUpperCase()}</p>
             </div>
             <div className="text-right">
-              <p className="text-[10px] text-emerald-300 uppercase">Balance / Total</p>
+              <p className="text-[10px] text-emerald-300 uppercase">
+                Balance / Total
+              </p>
               <p className="font-mono">
-                <span className="text-xl font-bold">${bill.remainingBalance}</span>
-                <span className="text-emerald-400 text-sm"> / ${bill.totalAmount}</span>
+                <span className="text-xl font-bold">
+                  ${bill.remainingBalance}
+                </span>
+                <span className="text-emerald-400 text-sm">
+                  {" "}
+                  / ${bill.totalAmount}
+                </span>
               </p>
             </div>
           </div>
@@ -896,21 +1314,36 @@ function BillingTestSection() {
           {/* Line Items (New!) */}
           {bill.items && bill.items.length > 0 && (
             <div className="space-y-1 bg-black/20 p-2 rounded">
-              <p className="text-[10px] font-bold text-emerald-300 uppercase mb-1">Billable Items</p>
-              {bill.items.map(item => (
-                <label key={item.id} className="flex justify-between items-center text-xs p-1 hover:bg-white/5 rounded cursor-pointer">
+              <p className="text-[10px] font-bold text-emerald-300 uppercase mb-1">
+                Billable Items
+              </p>
+              {bill.items.map((item) => (
+                <label
+                  key={item.id}
+                  className="flex justify-between items-center text-xs p-1 hover:bg-white/5 rounded cursor-pointer"
+                >
                   <div className="flex items-center gap-2">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={selectedItems.includes(item.id)}
                       onChange={(e) => {
-                        if(e.target.checked) setSelectedItems([...selectedItems, item.id]);
-                        else setSelectedItems(selectedItems.filter(id => id !== item.id));
+                        if (e.target.checked)
+                          setSelectedItems([...selectedItems, item.id]);
+                        else
+                          setSelectedItems(
+                            selectedItems.filter((id) => id !== item.id),
+                          );
                       }}
-                      disabled={item.status !== 'unpaid'}
+                      disabled={item.status !== "unpaid"}
                     />
-                    <span className={item.status !== 'unpaid' ? 'opacity-50 line-through' : ''}>
-                      {item.name}
+                    <span
+                      className={
+                        item.status !== "unpaid"
+                          ? "opacity-50 line-through text-[10px]"
+                          : "text-[10px]"
+                      }
+                    >
+                      {item.toothNumber ? `[T#${item.toothNumber}] ` : ""}{item.name}
                     </span>
                   </div>
                   <span className="font-mono">${item.price}</span>
@@ -923,36 +1356,58 @@ function BillingTestSection() {
           {bill.remainingBalance > 0 && (
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white/10 p-3 rounded space-y-2">
-                <p className="text-xs font-bold text-emerald-200">Immediate Payment</p>
-                <button onClick={() => handlePay(true)} disabled={loading} className="w-full bg-emerald-500 hover:bg-emerald-400 py-1.5 rounded text-xs font-bold">
+                <p className="text-xs font-bold text-emerald-200">
+                  Immediate Payment
+                </p>
+                <button
+                  onClick={() => handlePay(true)}
+                  disabled={loading}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 py-1.5 rounded text-xs font-bold"
+                >
                   Pay Full Balance
                 </button>
                 <div className="flex gap-1">
-                  <input 
-                    type="number" 
-                    placeholder="Amount" 
+                  <input
+                    type="number"
+                    placeholder="Amount"
                     value={payAmount}
                     onChange={(e) => setPayAmount(e.target.value)}
-                    className="text-black text-xs p-1.5 rounded w-2/3" 
+                    className="text-black text-xs p-1.5 rounded w-2/3"
                   />
-                  <button onClick={() => handlePay(false)} disabled={loading} className="bg-emerald-600 hover:bg-emerald-500 w-1/3 rounded text-xs font-bold">
+                  <button
+                    onClick={() => handlePay(false)}
+                    disabled={loading}
+                    className="bg-emerald-600 hover:bg-emerald-500 w-1/3 rounded text-xs font-bold"
+                  >
                     Pay
                   </button>
                 </div>
               </div>
 
               <div className="bg-white/10 p-3 rounded space-y-2">
-                <p className="text-xs font-bold text-emerald-200">Installment Plan</p>
+                <p className="text-xs font-bold text-emerald-200">
+                  Installment Plan
+                </p>
                 <div className="flex gap-2">
-                  <button onClick={() => handlePlan(2)} disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-500 py-1.5 rounded text-xs font-bold">
+                  <button
+                    onClick={() => handlePlan(2)}
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 py-1.5 rounded text-xs font-bold"
+                  >
                     2 Months
                   </button>
-                  <button onClick={() => handlePlan(3)} disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-500 py-1.5 rounded text-xs font-bold">
+                  <button
+                    onClick={() => handlePlan(3)}
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 py-1.5 rounded text-xs font-bold"
+                  >
                     3 Months
                   </button>
                 </div>
                 <p className="text-[9px] text-emerald-300 italic text-center">
-                  {selectedItems.length > 0 ? `Splitting $${bill.items.filter(i => selectedItems.includes(i.id)).reduce((s,x)=>s+x.price,0)}` : "*Splits full balance"}
+                  {selectedItems.length > 0
+                    ? `Splitting $${bill.items.filter((i) => selectedItems.includes(i.id)).reduce((s, x) => s + x.price, 0)}`
+                    : "*Splits full balance"}
                 </p>
               </div>
             </div>
@@ -964,12 +1419,23 @@ function BillingTestSection() {
               Transaction History
             </p>
             {bill.transactions.length === 0 ? (
-              <p className="text-[10px] text-emerald-400 italic">No payments yet.</p>
+              <p className="text-[10px] text-emerald-400 italic">
+                No payments yet.
+              </p>
             ) : (
               bill.transactions.map((t) => (
-                <div key={t.id} className="flex justify-between text-xs bg-black/20 p-2 rounded">
-                  <span>{new Date((t.date as any).seconds * 1000).toLocaleDateString()}</span>
-                  <span className="font-mono text-emerald-300">+${t.amount} ({t.method})</span>
+                <div
+                  key={t.id}
+                  className="flex justify-between text-xs bg-black/20 p-2 rounded"
+                >
+                  <span>
+                    {new Date(
+                      (t.date as any).seconds * 1000,
+                    ).toLocaleDateString()}
+                  </span>
+                  <span className="font-mono text-emerald-300">
+                    +${t.amount} ({t.method})
+                  </span>
                 </div>
               ))
             )}
@@ -982,10 +1448,17 @@ function BillingTestSection() {
                 Active Plan
               </p>
               {bill.paymentPlan.installments.map((i, idx) => (
-                <div key={idx} className="flex justify-between text-xs bg-blue-900/20 p-2 rounded items-center">
+                <div
+                  key={idx}
+                  className="flex justify-between text-xs bg-blue-900/20 p-2 rounded items-center"
+                >
                   <div>
-                    <span className="block font-bold text-blue-100">Due: {i.dueDate}</span>
-                    <span className={`text-[9px] uppercase px-1.5 rounded ${i.status === 'paid' ? 'bg-green-500' : 'bg-yellow-600'}`}>
+                    <span className="block font-bold text-blue-100">
+                      Due: {i.dueDate}
+                    </span>
+                    <span
+                      className={`text-[9px] uppercase px-1.5 rounded ${i.status === "paid" ? "bg-green-500" : "bg-yellow-600"}`}
+                    >
                       {i.status}
                     </span>
                   </div>
@@ -1002,10 +1475,14 @@ function BillingTestSection() {
 
 // --- BILLING OVERVIEW SECTION ---
 
-function BillingOverviewSection({ onSelectBill }: { onSelectBill: (id: string) => void }) {
+function BillingOverviewSection({
+  onSelectBill,
+}: {
+  onSelectBill: (id: string) => void;
+}) {
   const [bills, setBills] = useState<BillingRecord[]>([]);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid'>('all');
+  const [filter, setFilter] = useState<"all" | "unpaid" | "paid">("all");
 
   const fetchBills = async () => {
     setLoading(true);
@@ -1025,11 +1502,11 @@ function BillingOverviewSection({ onSelectBill }: { onSelectBill: (id: string) =
       <div className="flex justify-between items-center border-b pb-2">
         <h3 className={styles.cardTitle}>Billing Overview (Staff)</h3>
         <div className="flex gap-1">
-          {['all', 'unpaid', 'paid'].map((f) => (
+          {["all", "unpaid", "paid"].map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f as any)}
-              className={`px-2 py-1 text-[9px] font-bold rounded uppercase ${filter === f ? 'bg-black text-white' : 'bg-gray-100 text-gray-500'}`}
+              className={`px-2 py-1 text-[9px] font-bold rounded uppercase ${filter === f ? "bg-black text-white" : "bg-gray-100 text-gray-500"}`}
             >
               {f}
             </button>
@@ -1040,21 +1517,37 @@ function BillingOverviewSection({ onSelectBill }: { onSelectBill: (id: string) =
       {loading ? (
         <p className="text-xs">Loading bills...</p>
       ) : bills.length === 0 ? (
-        <p className="text-xs italic text-gray-500 text-center py-4">No records found matching filter.</p>
+        <p className="text-xs italic text-gray-500 text-center py-4">
+          No records found matching filter.
+        </p>
       ) : (
         <div className="space-y-2 max-h-60 overflow-y-auto">
           {bills.map((b) => (
-            <div key={b.id} className="p-2 border rounded bg-white flex justify-between items-center shadow-sm">
+            <div
+              key={b.id}
+              className="p-2 border rounded bg-white flex justify-between items-center shadow-sm"
+            >
               <div className="text-[10px]">
-                <p className="font-bold text-gray-800">Appt: {b.id}</p>
-                <p className="text-gray-500">Patient: {b.patientId.substring(0, 8)}...</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-gray-800">Appt: {b.id}</p>
+                  {b.paymentPlan?.type === "installments" && (
+                    <span className="bg-blue-100 text-blue-700 px-1 rounded font-black uppercase text-[8px]">
+                      Plan
+                    </span>
+                  )}
+                </div>
+                <p className="text-gray-500">
+                  Patient: {b.patientId.substring(0, 8)}...
+                </p>
               </div>
               <div className="text-right flex items-center gap-3">
                 <div className="text-[10px]">
-                  <p className="font-mono font-bold">${b.remainingBalance} left</p>
+                  <p className="font-mono font-bold">
+                    ${b.remainingBalance} left
+                  </p>
                   <p className="text-gray-400">Total: ${b.totalAmount}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => onSelectBill(b.id)}
                   className="bg-blue-50 text-blue-600 p-1.5 rounded hover:bg-blue-100 transition"
                 >
@@ -1065,7 +1558,10 @@ function BillingOverviewSection({ onSelectBill }: { onSelectBill: (id: string) =
           ))}
         </div>
       )}
-      <button onClick={fetchBills} className="w-full text-[10px] text-gray-400 hover:text-gray-600 underline uppercase font-bold tracking-widest">
+      <button
+        onClick={fetchBills}
+        className="w-full text-[10px] text-gray-400 hover:text-gray-600 underline uppercase font-bold tracking-widest"
+      >
         Refresh List
       </button>
     </div>
@@ -1076,7 +1572,11 @@ function BillingOverviewSection({ onSelectBill }: { onSelectBill: (id: string) =
 
 function ServiceCatalogSection() {
   const [services, setServices] = useState<DentalService[]>([]);
-  const [state, formAction, isPending] = useActionState(createServiceAction, { success: false });
+  const [editingService, setEditingService] = useState<DentalService | null>(null);
+
+  const [state, formAction, isPending] = useActionState(createServiceAction, {
+    success: false,
+  });
 
   const fetchServices = async () => {
     const res = await getAllServicesAction();
@@ -1087,30 +1587,57 @@ function ServiceCatalogSection() {
     fetchServices();
   }, [state.success]);
 
+  const handleUpdateSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingService) return;
+
+    const formData = new FormData(e.currentTarget);
+    const res = await updateServiceAction(editingService.id, formData);
+    if (res.success) {
+      alert("Service updated!");
+      setEditingService(null);
+      fetchServices();
+    } else {
+      alert("Error: " + res.error);
+    }
+  };
+
   return (
     <div className={`${styles.cardOrange} space-y-4`}>
       <h3 className={styles.cardTitle}>Service Catalog (Website)</h3>
-      
-      <div className="space-y-2 max-h-60 overflow-y-auto bg-white p-2 rounded border">
+
+      <div className="space-y-2 max-h-60 overflow-y-auto bg-white p-2 rounded border shadow-inner">
         {services.length === 0 ? (
-          <p className="text-xs text-gray-500 italic text-center">No services found.</p>
+          <p className="text-xs text-gray-500 italic text-center">
+            No services found.
+          </p>
         ) : (
           services.map((s) => (
-            <div key={s.id} className="flex justify-between items-center border-b pb-2 last:border-0">
+            <div
+              key={s.id}
+              className="flex justify-between items-center border-b pb-2 last:border-0 hover:bg-gray-50 p-1 rounded transition"
+            >
               <div>
                 <p className="font-bold text-xs text-gray-800">{s.name}</p>
-                <p className="text-[10px] text-gray-500 uppercase">{s.category} • {s.durationMinutes} min</p>
+                <p className="text-[10px] text-gray-400 font-mono italic">
+                  ${s.price}
+                </p>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="font-bold text-sm text-orange-700">${s.price}</span>
+              <div className="flex items-center gap-2">
                 <button
                   onClick={async () => {
                     await toggleServiceStatusAction(s.id, s.isActive);
                     fetchServices();
                   }}
-                  className={`text-[9px] px-2 py-1 rounded font-bold uppercase ${s.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
+                  className={`text-[9px] px-2 py-1 rounded font-bold uppercase ${s.isActive ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}
                 >
                   {s.isActive ? "Active" : "Inactive"}
+                </button>
+                <button
+                  onClick={() => setEditingService(s)}
+                  className="p-1 bg-gray-100 hover:bg-orange-100 text-orange-600 rounded"
+                >
+                  ✎
                 </button>
               </div>
             </div>
@@ -1118,29 +1645,293 @@ function ServiceCatalogSection() {
         )}
       </div>
 
-      <form action={formAction} className="space-y-2 border-t pt-2 mt-2">
-        <p className="text-xs font-bold text-gray-600 uppercase">Add New Service</p>
-        <input name="name" placeholder="Service Name" className="w-full p-2 border rounded text-sm" required />
-        <div className="flex gap-2">
-          <select name="category" className="w-1/2 p-2 border rounded text-sm">
-            <option value="preventative">Preventative</option>
-            <option value="restorative">Restorative</option>
-            <option value="cosmetic">Cosmetic</option>
-            <option value="surgery">Surgery</option>
-            <option value="orthodontics">Orthodontics</option>
-            <option value="emergency">Emergency</option>
-          </select>
-          <input name="durationMinutes" type="number" placeholder="Mins" className="w-1/2 p-2 border rounded text-sm" required />
+      <form
+        onSubmit={editingService ? handleUpdateSubmit : undefined}
+        action={editingService ? undefined : formAction}
+        className="space-y-2 border-t pt-2 mt-2"
+      >
+        <div className="flex justify-between items-center">
+          <p className="text-[10px] font-black text-gray-500 uppercase">
+            {editingService ? "Edit Service" : "Add New Service"}
+          </p>
+          {editingService && (
+            <button
+              type="button"
+              onClick={() => setEditingService(null)}
+              className="text-[9px] text-red-500 font-bold uppercase underline"
+            >
+              Cancel
+            </button>
+          )}
         </div>
-        <input name="price" type="number" placeholder="Price ($)" className="w-full p-2 border rounded text-sm" required />
-        <textarea name="description" placeholder="Description" className="w-full p-2 border rounded text-sm h-12" />
-        <input type="hidden" name="isActive" value="true" />
-        
-        <button disabled={isPending} className="w-full bg-orange-600 hover:bg-orange-700 text-white py-2 rounded font-bold text-xs transition">
-          {isPending ? "Adding..." : "Add to Catalog"}
+
+        <input
+          name="name"
+          defaultValue={editingService?.name}
+          key={editingService?.id}
+          placeholder="Service Name (e.g. Braces)"
+          className="w-full p-2 border rounded text-sm bg-white"
+          required
+        />
+
+        <input
+          name="price"
+          type="number"
+          defaultValue={editingService?.price}
+          key={editingService?.id + "p"}
+          placeholder="Starting Price ($)"
+          className="w-full p-2 border rounded text-sm bg-white"
+          required
+        />
+
+        <textarea
+          name="description"
+          defaultValue={editingService?.description}
+          key={editingService?.id + "d"}
+          placeholder="Public Description"
+          className="w-full p-2 border rounded text-sm h-16 bg-white shadow-sm"
+        />
+
+        {/* Hidden fields for Schema requirements we want to simplify away from UI */}
+        <input type="hidden" name="category" value="general" />
+        <input type="hidden" name="durationMinutes" value="30" />
+        <input
+          type="hidden"
+          name="isActive"
+          value={editingService ? String(editingService.isActive) : "true"}
+        />
+
+        <button
+          disabled={isPending}
+          className={`w-full py-2 rounded font-bold text-xs transition text-white ${editingService ? "bg-blue-600 hover:bg-blue-700" : "bg-orange-600 hover:bg-orange-700"}`}
+        >
+          {isPending
+            ? "Processing..."
+            : editingService
+              ? "Save Service"
+              : "Add to Catalog"}
         </button>
-        {state.error && <p className="text-red-600 text-[10px] text-center">{state.error}</p>}
+        {state.error && !editingService && (
+          <p className="text-red-600 text-[10px] text-center">{state.error}</p>
+        )}
       </form>
+    </div>
+  );
+}
+
+// --- DENTIST SERVICE MANAGER ---
+
+function DentistServiceManager() {
+  const [dentists, setDentists] = useState<UserProfile[]>([]);
+  const [services, setServices] = useState<DentalService[]>([]);
+  const [selectedDentist, setSelectedDentist] = useState<string | null>(null);
+  const [supportedIds, setSupportedIds] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const fetchData = async () => {
+    const [dRes, sRes] = await Promise.all([
+      getDentistListAction(),
+      getAllServicesAction(),
+    ]);
+    if (dRes.success) setDentists(dRes.data as UserProfile[]);
+    if (sRes.success) setServices(sRes.data || []);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (selectedDentist) {
+      getDentistProfile(selectedDentist).then((res) => {
+        if (res.success && res.data) {
+          setSupportedIds(res.data.supportedServiceIds || []);
+        }
+      });
+    }
+  }, [selectedDentist]);
+
+  const handleToggle = (serviceId: string) => {
+    setSupportedIds((prev) =>
+      prev.includes(serviceId)
+        ? prev.filter((id) => id !== serviceId)
+        : [...prev, serviceId],
+    );
+  };
+
+  const handleSave = async () => {
+    if (!selectedDentist) return;
+    setIsSaving(true);
+    const res = await updateDentistServicesAction(
+      selectedDentist,
+      supportedIds,
+    );
+    setIsSaving(false);
+    if (res.success) alert("Provider capabilities updated!");
+    else alert("Error: " + res.error);
+  };
+
+  return (
+    <div className={`${styles.cardIndigo} space-y-4`}>
+      <h3 className={styles.cardTitle}>Provider Capabilities</h3>
+      <p className="text-[10px] text-indigo-300 -mt-2 uppercase font-bold">
+        Assign Services to Dentists
+      </p>
+
+      <select
+        className="w-full p-2 border rounded text-sm bg-white"
+        onChange={(e) => setSelectedDentist(e.target.value)}
+        value={selectedDentist || ""}
+      >
+        <option value="">Select Dentist...</option>
+        {dentists.map((d) => (
+          <option key={d.uid} value={d.uid}>
+            {d.displayName || d.email}
+          </option>
+        ))}
+      </select>
+
+      {selectedDentist && (
+        <div className="space-y-3 bg-white p-3 rounded border">
+          <p className="text-[10px] font-black text-gray-400 uppercase border-b pb-1">
+            Supported Services
+          </p>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {services.map((s) => (
+              <label
+                key={s.id}
+                className="flex items-center gap-2 text-xs p-1 hover:bg-indigo-50 rounded cursor-pointer transition"
+              >
+                <input
+                  type="checkbox"
+                  checked={supportedIds.includes(s.id)}
+                  onChange={() => handleToggle(s.id)}
+                />
+                <span className="font-medium text-gray-700">{s.name}</span>
+              </label>
+            ))}
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded font-bold text-xs shadow-md transition-all"
+          >
+            {isSaving ? "Syncing..." : "Update Dentist Capabilities"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- CLINIC SETTINGS SECTION ---
+
+function ClinicSettingsSection() {
+  const [settings, setSettings] = useState<ClinicSettings | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    getClinicSettingsAction().then((res) => {
+      if (res.success) setSettings(res.data || null);
+    });
+  }, []);
+
+  const handleUpdate = async () => {
+    if (!settings) return;
+    setIsSaving(true);
+    const res = await updateClinicSettingsAction(settings);
+    setIsSaving(false);
+    if (res.success) alert("Clinic settings updated!");
+    else alert("Error: " + res.error);
+  };
+
+  const updateDay = (day: string, field: string, value: any) => {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      operatingHours: {
+        ...settings.operatingHours,
+        [day]: {
+          ...settings.operatingHours[
+            day as keyof typeof settings.operatingHours
+          ],
+          [field]: value,
+        },
+      },
+    });
+  };
+
+  if (!settings) return null;
+
+  return (
+    <div className={`${styles.cardPurple} space-y-4`}>
+      <h3 className={styles.cardTitle}>Clinic Orchestration</h3>
+      <div className="bg-white p-3 rounded border space-y-3 shadow-inner">
+        <div className="flex justify-between items-center bg-purple-50 p-2 rounded">
+          <label className="text-xs font-black text-purple-900 uppercase">
+            Max Patients/Hour
+          </label>
+          <input
+            type="number"
+            value={settings.maxConcurrentPatients}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                maxConcurrentPatients: Number(e.target.value),
+              })
+            }
+            className="w-16 p-1 border rounded text-center font-bold"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+            Weekly Routine
+          </p>
+          <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+            {Object.entries(settings.operatingHours).map(([day, hours]) => (
+              <div
+                key={day}
+                className="flex items-center gap-2 p-1.5 border-b last:border-0"
+              >
+                <input
+                  type="checkbox"
+                  checked={hours.isOpen}
+                  onChange={(e) => updateDay(day, "isOpen", e.target.checked)}
+                />
+                <span className="text-[10px] font-bold w-16 uppercase text-gray-600">
+                  {day.substring(0, 3)}
+                </span>
+                <div className="flex gap-1 items-center opacity-80 scale-90 origin-left">
+                  <input
+                    disabled={!hours.isOpen}
+                    type="text"
+                    value={hours.open}
+                    onChange={(e) => updateDay(day, "open", e.target.value)}
+                    className="w-12 p-0.5 border rounded text-[10px] text-center"
+                  />
+                  <span>-</span>
+                  <input
+                    disabled={!hours.isOpen}
+                    type="text"
+                    value={hours.close}
+                    onChange={(e) => updateDay(day, "close", e.target.value)}
+                    className="w-12 p-0.5 border rounded text-[10px] text-center"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={handleUpdate}
+          disabled={isSaving}
+          className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 rounded font-bold text-xs shadow-md transition-all uppercase"
+        >
+          {isSaving ? "Applying..." : "Save Clinic Logic"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1176,17 +1967,39 @@ function HistorySection() {
           {appointments.map((app) => (
             <div
               key={app.id}
-              className="flex justify-between items-center p-3 border rounded bg-gray-50"
+              className="flex flex-col p-3 border rounded bg-gray-50 space-y-2"
             >
-              <div>
-                <p className="font-bold text-sm text-gray-800">
-                  {app.serviceType}
-                </p>
-                <p className="text-xs text-gray-600">
-                  {app.date} @ {app.time}
-                </p>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="font-bold text-sm text-gray-800">
+                    {app.serviceType}
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    {app.date} @ {app.time}
+                  </p>
+                </div>
+                <StatusBadge status={app.status} />
               </div>
-              <StatusBadge status={app.status} />
+
+              {app.status === "completed" && app.treatment?.procedures && (
+                <div className="border-t pt-2 mt-1 space-y-1">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                    Snapshot Record
+                  </p>
+                  {app.treatment.procedures.map((p, idx) => (
+                    <div
+                      key={idx}
+                      className="flex justify-between text-[10px] bg-white p-1 rounded border shadow-sm"
+                    >
+                      <span className="font-medium">
+                        {p.toothNumber ? `[T#${p.toothNumber}] ` : ""}
+                        {p.name}
+                      </span>
+                      <span className="font-mono font-bold">${p.price}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1197,13 +2010,21 @@ function HistorySection() {
 
 function BookingSection() {
   const { user } = useAuth();
+  const [services, setServices] = useState<DentalService[]>([]);
   const [state, formAction, isPending] = useActionState(bookAppointmentAction, {
     success: false,
   });
   const [availability, setAvailability] = useState<CalendarAvailability | null>(
-    null
+    null,
   );
   const [selectedDate, setSelectedDate] = useState("");
+
+  useEffect(() => {
+    // Load real services for the dropdown
+    getAllServicesAction().then(res => {
+      if (res.success) setServices(res.data || []);
+    });
+  }, []);
 
   useEffect(() => {
     if (selectedDate) {
@@ -1222,71 +2043,78 @@ function BookingSection() {
             name="displayName"
             placeholder="Your Name"
             required
-            className="w-full p-2 border rounded text-sm"
+            className="w-full p-2 border rounded text-sm bg-white"
           />
         )}
+        
         <select
           name="serviceType"
           required
-          className="w-full p-2 border rounded text-sm"
+          className="w-full p-2 border rounded text-sm bg-white"
         >
           <option value="">Select Service</option>
-          <option value="General Checkup">General Checkup</option>
-          <option value="Cleaning">Cleaning</option>
-          <option value="Emergency">Emergency</option>
-        </select>
-        <input
-          name="date"
-          type="date"
-          required
-          className="w-full p-2 border rounded text-sm"
-          onChange={(e) => setSelectedDate(e.target.value)}
-        />
-        {availability?.isHoliday && (
-          <p className="text-xs font-bold text-red-600 italic">
-            Clinic Closed: {availability.holidayReason}
-          </p>
-        )}
-        <select
-          name="time"
-          required
-          className="w-full p-2 border rounded text-sm"
-          disabled={availability?.isHoliday}
-        >
-          <option value="">Select Time</option>
-          {[
-            "08:00",
-            "09:00",
-            "10:00",
-            "11:00",
-            "13:00",
-            "14:00",
-            "15:00",
-            "16:00",
-          ].map((t) => (
-            <option
-              key={t}
-              value={t}
-              disabled={availability?.takenSlots.includes(t)}
-            >
-              {t} {availability?.takenSlots.includes(t) ? "(Booked)" : ""}
-            </option>
+          {services.map(s => (
+            <option key={s.id} value={s.name}>{s.name} (${s.price})</option>
           ))}
         </select>
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-blue-800 uppercase ml-1">Select Date</label>
+          <input
+            name="date"
+            type="date"
+            required
+            className="w-full p-2 border rounded text-sm bg-white"
+            onChange={(e) => setSelectedDate(e.target.value)}
+          />
+        </div>
+
+        {availability?.isHoliday && (
+          <div className="bg-red-50 border border-red-100 p-2 rounded flex items-center gap-2">
+            <span className="text-red-500">🚫</span>
+            <p className="text-[10px] font-bold text-red-600 uppercase">
+              {availability.holidayReason || "Clinic Closed"}
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-blue-800 uppercase ml-1">Preferred Time</label>
+          <select
+            name="time"
+            required
+            className="w-full p-2 border rounded text-sm bg-white"
+            disabled={availability?.isHoliday || !selectedDate}
+          >
+            <option value="">Select Time</option>
+            {[
+              "08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00",
+            ].map((t) => (
+              <option
+                key={t}
+                value={t}
+                disabled={availability?.takenSlots.includes(t)}
+              >
+                {t} {availability?.takenSlots.includes(t) ? "(Fully Booked)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <button
           disabled={isPending || availability?.isHoliday}
-          className="w-full bg-blue-700 text-white py-2 rounded font-bold hover:bg-blue-800 disabled:opacity-50"
+          className="w-full bg-blue-700 text-white py-3 rounded-xl font-bold hover:bg-blue-800 disabled:opacity-50 shadow-lg shadow-blue-100 transition-all"
         >
-          {isPending ? "Processing..." : "Book Now"}
+          {isPending ? "Syncing with Calendar..." : "Confirm Booking"}
         </button>
         {state.success && (
           <p className="text-green-600 text-sm font-bold text-center">
-            Success!
+            ✅ Appointment Requested!
           </p>
         )}
         {state.error && (
           <p className="text-red-600 text-sm font-bold text-center">
-            {state.error}
+            ❌ {state.error}
           </p>
         )}
       </form>
@@ -1367,14 +2195,14 @@ function PatientSection({
         name: {
           first_name: data.firstName || "",
           last_name: data.lastName || "",
-          middle_initial: data.middleInitial || ""
+          middle_initial: data.middleInitial || "",
         },
         nickname: data.nickname || "",
         birthdate: data.birthdate || "",
         sex: data.sex || "",
         religion: data.religion || "",
         nationality: data.nationality || "",
-        effective_date: new Date().toISOString().split('T')[0]
+        effective_date: new Date().toISOString().split("T")[0],
       },
       contact_information: {
         home_address: data.address || "",
@@ -1382,56 +2210,59 @@ function PatientSection({
         mobile_no: data.mobileNo || "",
         office_no: data.officeNo || "",
         fax_no: data.faxNo || "",
-        email_address: record?.registration?.contact_information?.email_address || user?.email || ""
+        email_address:
+          record?.registration?.contact_information?.email_address ||
+          user?.email ||
+          "",
       },
       employment_information: {
-        occupation: data.occupation || ""
+        occupation: data.occupation || "",
       },
       minor_details: {
         is_minor: data.isMinor === "on",
         parent_guardian_name: data.guardianName || "",
-        parent_guardian_occupation: data.guardianOccupation || ""
+        parent_guardian_occupation: data.guardianOccupation || "",
       },
       dental_history: {
         previous_dentist: data.previousDentist || "",
-        last_dental_visit: data.lastDentalVisit || ""
+        last_dental_visit: data.lastDentalVisit || "",
       },
       referral_details: {
         referred_by: data.referredBy || "",
-        reason_for_consultation: data.consultationReason || ""
+        reason_for_consultation: data.consultationReason || "",
       },
       medical_history: {
         physician: {
           name: data.physicianName || "",
           specialty: data.physicianSpecialty || "",
           office_address: data.physicianOffice || "",
-          office_number: data.physicianNumber || ""
+          office_number: data.physicianNumber || "",
         },
         vitals: {
           blood_type: data.bloodType || "",
           blood_pressure: data.bloodPressure || "",
-          bleeding_time: data.bleedingTime || ""
+          bleeding_time: data.bleedingTime || "",
         },
         general_health_screening: {
           in_good_health: data.inGoodHealth === "on",
           under_medical_condition: {
             status: data.underMedicalCondition === "on",
-            condition_description: data.conditionDesc || ""
+            condition_description: data.conditionDesc || "",
           },
           serious_illness_or_surgery: {
             status: data.seriousIllness === "on",
-            details: data.illnessDetails || ""
+            details: data.illnessDetails || "",
           },
           hospitalized: {
             status: data.hospitalized === "on",
-            when_and_why: data.hospitalizedDetails || ""
+            when_and_why: data.hospitalizedDetails || "",
           },
           taking_medication: {
             status: data.takingMeds === "on",
-            medication_list: data.medicationList || ""
+            medication_list: data.medicationList || "",
           },
           uses_tobacco: data.usesTobacco === "on",
-          uses_alcohol_or_drugs: data.usesDrugs === "on"
+          uses_alcohol_or_drugs: data.usesDrugs === "on",
         },
         allergies: {
           local_anesthetic: data.allergyAnaesthetic === "on",
@@ -1439,20 +2270,24 @@ function PatientSection({
           sulfa_drugs: data.allergySulfa === "on",
           aspirin: data.allergyAspirin === "on",
           latex: data.allergyLatex === "on",
-          others: data.allergyOthers || ""
+          others: data.allergyOthers || "",
         },
         women_only: {
           is_pregnant: data.isPregnant === "on",
           is_nursing: data.isNursing === "on",
-          taking_birth_control: data.birthControl === "on"
+          taking_birth_control: data.birthControl === "on",
         },
-        conditions_checklist: (data.conditions as string)?.split(",").map(s => s.trim()).filter(Boolean) || []
-      }
+        conditions_checklist:
+          (data.conditions as string)
+            ?.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean) || [],
+      },
     };
 
     const res = await submitPatientRegistrationAction(
       targetUid || user!.uid,
-      structuredData
+      structuredData,
     );
     setIsSaving(false);
     setStatus({ success: res.success, message: res.error });
@@ -1503,107 +2338,350 @@ function PatientSection({
           name="targetUid"
           value={targetUid || user?.uid || ""}
         />
-        
+
         <div className="bg-white p-3 rounded border space-y-2">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide border-b pb-1">Personal Information</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide border-b pb-1">
+            Personal Information
+          </p>
           <div className="grid grid-cols-4 gap-2">
-            <input name="firstName" defaultValue={reg?.personal_information?.name?.first_name || displayName.split(" ")[0]} className="col-span-2 w-full p-2 border rounded text-sm" placeholder="First Name" required />
-            <input name="middleInitial" defaultValue={reg?.personal_information?.name?.middle_initial} className="w-full p-2 border rounded text-sm" placeholder="M.I." />
-            <input name="lastName" defaultValue={reg?.personal_information?.name?.last_name || displayName.split(" ").slice(1).join(" ")} className="w-full p-2 border rounded text-sm" placeholder="Last Name" required />
+            <input
+              name="firstName"
+              defaultValue={
+                reg?.personal_information?.name?.first_name ||
+                displayName.split(" ")[0]
+              }
+              className="col-span-2 w-full p-2 border rounded text-sm"
+              placeholder="First Name"
+              required
+            />
+            <input
+              name="middleInitial"
+              defaultValue={reg?.personal_information?.name?.middle_initial}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="M.I."
+            />
+            <input
+              name="lastName"
+              defaultValue={
+                reg?.personal_information?.name?.last_name ||
+                displayName.split(" ").slice(1).join(" ")
+              }
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Last Name"
+              required
+            />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input name="nickname" defaultValue={reg?.personal_information?.nickname} className="w-full p-2 border rounded text-sm" placeholder="Nickname" />
+            <input
+              name="nickname"
+              defaultValue={reg?.personal_information?.nickname}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Nickname"
+            />
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <input name="birthdate" type="date" defaultValue={reg?.personal_information?.birthdate} className="w-full p-2 border rounded text-sm" />
-            <select name="sex" className="w-full p-2 border rounded text-sm" defaultValue={reg?.personal_information?.sex || ""}>
+            <input
+              name="birthdate"
+              type="date"
+              defaultValue={reg?.personal_information?.birthdate}
+              className="w-full p-2 border rounded text-sm"
+            />
+            <select
+              name="sex"
+              className="w-full p-2 border rounded text-sm"
+              defaultValue={reg?.personal_information?.sex || ""}
+            >
               <option value="">Sex</option>
               <option value="male">Male</option>
               <option value="female">Female</option>
             </select>
-            <input name="nationality" defaultValue={reg?.personal_information?.nationality} className="w-full p-2 border rounded text-sm" placeholder="Nationality" />
+            <input
+              name="nationality"
+              defaultValue={reg?.personal_information?.nationality}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Nationality"
+            />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input name="religion" defaultValue={reg?.personal_information?.religion} className="w-full p-2 border rounded text-sm" placeholder="Religion" />
-            <input name="occupation" defaultValue={reg?.employment_information?.occupation} className="w-full p-2 border rounded text-sm" placeholder="Occupation" />
+            <input
+              name="religion"
+              defaultValue={reg?.personal_information?.religion}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Religion"
+            />
+            <input
+              name="occupation"
+              defaultValue={reg?.employment_information?.occupation}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Occupation"
+            />
           </div>
         </div>
 
         <div className="bg-white p-3 rounded border space-y-2">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide border-b pb-1">Contact Details</p>
-          <input name="address" defaultValue={reg?.contact_information?.home_address} className="w-full p-2 border rounded text-sm" placeholder="Home Address" />
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide border-b pb-1">
+            Contact Details
+          </p>
+          <input
+            name="address"
+            defaultValue={reg?.contact_information?.home_address}
+            className="w-full p-2 border rounded text-sm"
+            placeholder="Home Address"
+          />
           <div className="grid grid-cols-2 gap-2">
-            <input name="mobileNo" defaultValue={reg?.contact_information?.mobile_no} className="w-full p-2 border rounded text-sm" placeholder="Mobile No." />
-            <input name="homeNo" defaultValue={reg?.contact_information?.home_no} className="w-full p-2 border rounded text-sm" placeholder="Home No." />
+            <input
+              name="mobileNo"
+              defaultValue={reg?.contact_information?.mobile_no}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Mobile No."
+            />
+            <input
+              name="homeNo"
+              defaultValue={reg?.contact_information?.home_no}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Home No."
+            />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input name="officeNo" defaultValue={reg?.contact_information?.office_no} className="w-full p-2 border rounded text-sm" placeholder="Office No." />
-            <input name="faxNo" defaultValue={reg?.contact_information?.fax_no} className="w-full p-2 border rounded text-sm" placeholder="Fax No." />
+            <input
+              name="officeNo"
+              defaultValue={reg?.contact_information?.office_no}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Office No."
+            />
+            <input
+              name="faxNo"
+              defaultValue={reg?.contact_information?.fax_no}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Fax No."
+            />
           </div>
         </div>
 
         {/* --- GUARDIAN & DENTAL --- */}
         <div className="bg-white p-3 rounded border space-y-2">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide border-b pb-1">Guardian & Dental History</p>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide border-b pb-1">
+            Guardian & Dental History
+          </p>
           <div className="flex items-center gap-2 mb-2">
-            <input type="checkbox" name="isMinor" defaultChecked={reg?.minor_details?.is_minor} />
+            <input
+              type="checkbox"
+              name="isMinor"
+              defaultChecked={reg?.minor_details?.is_minor}
+            />
             <label className="text-sm font-medium">Patient is a Minor</label>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <input name="guardianName" defaultValue={reg?.minor_details?.parent_guardian_name} className="w-full p-2 border rounded text-sm" placeholder="Guardian Name" />
-            <input name="guardianOccupation" defaultValue={reg?.minor_details?.parent_guardian_occupation} className="w-full p-2 border rounded text-sm" placeholder="Guardian Occupation" />
+            <input
+              name="guardianName"
+              defaultValue={reg?.minor_details?.parent_guardian_name}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Guardian Name"
+            />
+            <input
+              name="guardianOccupation"
+              defaultValue={reg?.minor_details?.parent_guardian_occupation}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Guardian Occupation"
+            />
           </div>
           <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t">
-            <input name="previousDentist" defaultValue={reg?.dental_history?.previous_dentist} className="w-full p-2 border rounded text-sm" placeholder="Previous Dentist" />
-            <input name="lastDentalVisit" defaultValue={reg?.dental_history?.last_dental_visit} className="w-full p-2 border rounded text-sm" placeholder="Last Visit (Date/Note)" />
+            <input
+              name="previousDentist"
+              defaultValue={reg?.dental_history?.previous_dentist}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Previous Dentist"
+            />
+            <input
+              name="lastDentalVisit"
+              defaultValue={reg?.dental_history?.last_dental_visit}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Last Visit (Date/Note)"
+            />
           </div>
           <div className="grid grid-cols-2 gap-2 mt-2">
-             <input name="referredBy" defaultValue={reg?.referral_details?.referred_by} className="w-full p-2 border rounded text-sm" placeholder="Referred By" />
-             <input name="consultationReason" defaultValue={reg?.referral_details?.reason_for_consultation} className="w-full p-2 border rounded text-sm" placeholder="Reason for Consultation" />
+            <input
+              name="referredBy"
+              defaultValue={reg?.referral_details?.referred_by}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Referred By"
+            />
+            <input
+              name="consultationReason"
+              defaultValue={reg?.referral_details?.reason_for_consultation}
+              className="w-full p-2 border rounded text-sm"
+              placeholder="Reason for Consultation"
+            />
           </div>
         </div>
 
         {/* --- MEDICAL HISTORY --- */}
         {isStaff && (
           <div className="bg-red-50 p-3 rounded border border-red-100 space-y-3">
-            <p className="text-xs font-bold text-red-800 uppercase tracking-wide border-b border-red-200 pb-1">Medical History (Clinical)</p>
-            
+            <p className="text-xs font-bold text-red-800 uppercase tracking-wide border-b border-red-200 pb-1">
+              Medical History (Clinical)
+            </p>
+
             {/* Physician */}
             <div className="grid grid-cols-2 gap-2">
-              <input name="physicianName" defaultValue={reg?.medical_history?.physician?.name} className="w-full p-2 border rounded text-sm" placeholder="Physician Name" />
-              <input name="physicianSpecialty" defaultValue={reg?.medical_history?.physician?.specialty} className="w-full p-2 border rounded text-sm" placeholder="Specialty" />
-              <input name="physicianOffice" defaultValue={reg?.medical_history?.physician?.office_address} className="w-full p-2 border rounded text-sm" placeholder="Office Address" />
-              <input name="physicianNumber" defaultValue={reg?.medical_history?.physician?.office_number} className="w-full p-2 border rounded text-sm" placeholder="Office No." />
+              <input
+                name="physicianName"
+                defaultValue={reg?.medical_history?.physician?.name}
+                className="w-full p-2 border rounded text-sm"
+                placeholder="Physician Name"
+              />
+              <input
+                name="physicianSpecialty"
+                defaultValue={reg?.medical_history?.physician?.specialty}
+                className="w-full p-2 border rounded text-sm"
+                placeholder="Specialty"
+              />
+              <input
+                name="physicianOffice"
+                defaultValue={reg?.medical_history?.physician?.office_address}
+                className="w-full p-2 border rounded text-sm"
+                placeholder="Office Address"
+              />
+              <input
+                name="physicianNumber"
+                defaultValue={reg?.medical_history?.physician?.office_number}
+                className="w-full p-2 border rounded text-sm"
+                placeholder="Office No."
+              />
             </div>
 
             {/* Health Screening Questions */}
             <div className="space-y-2 text-sm bg-white p-2 rounded">
-              <p className="font-bold text-xs text-gray-500">General Screening</p>
-              <label className="flex gap-2"><input type="checkbox" name="inGoodHealth" defaultChecked={reg?.medical_history?.general_health_screening?.in_good_health || false} /> In good health?</label>
-              
+              <p className="font-bold text-xs text-gray-500">
+                General Screening
+              </p>
+              <label className="flex gap-2">
+                <input
+                  type="checkbox"
+                  name="inGoodHealth"
+                  defaultChecked={
+                    reg?.medical_history?.general_health_screening
+                      ?.in_good_health || false
+                  }
+                />{" "}
+                In good health?
+              </label>
+
               <div className="border-t pt-1">
-                <label className="flex gap-2"><input type="checkbox" name="underMedicalCondition" defaultChecked={reg?.medical_history?.general_health_screening?.under_medical_condition?.status || false} /> Under medical treatment?</label>
-                <input name="conditionDesc" defaultValue={reg?.medical_history?.general_health_screening?.under_medical_condition?.condition_description} className="w-full p-1 border rounded text-xs mt-1" placeholder="Condition details..." />
+                <label className="flex gap-2">
+                  <input
+                    type="checkbox"
+                    name="underMedicalCondition"
+                    defaultChecked={
+                      reg?.medical_history?.general_health_screening
+                        ?.under_medical_condition?.status || false
+                    }
+                  />{" "}
+                  Under medical treatment?
+                </label>
+                <input
+                  name="conditionDesc"
+                  defaultValue={
+                    reg?.medical_history?.general_health_screening
+                      ?.under_medical_condition?.condition_description
+                  }
+                  className="w-full p-1 border rounded text-xs mt-1"
+                  placeholder="Condition details..."
+                />
               </div>
 
               <div className="border-t pt-1">
-                <label className="flex gap-2"><input type="checkbox" name="seriousIllness" defaultChecked={reg?.medical_history?.general_health_screening?.serious_illness_or_surgery?.status || false} /> Serious illness/surgery?</label>
-                <input name="illnessDetails" defaultValue={reg?.medical_history?.general_health_screening?.serious_illness_or_surgery?.details} className="w-full p-1 border rounded text-xs mt-1" placeholder="Details..." />
+                <label className="flex gap-2">
+                  <input
+                    type="checkbox"
+                    name="seriousIllness"
+                    defaultChecked={
+                      reg?.medical_history?.general_health_screening
+                        ?.serious_illness_or_surgery?.status || false
+                    }
+                  />{" "}
+                  Serious illness/surgery?
+                </label>
+                <input
+                  name="illnessDetails"
+                  defaultValue={
+                    reg?.medical_history?.general_health_screening
+                      ?.serious_illness_or_surgery?.details
+                  }
+                  className="w-full p-1 border rounded text-xs mt-1"
+                  placeholder="Details..."
+                />
               </div>
 
               <div className="border-t pt-1">
-                <label className="flex gap-2"><input type="checkbox" name="hospitalized" defaultChecked={reg?.medical_history?.general_health_screening?.hospitalized?.status || false} /> Hospitalized recently?</label>
-                <input name="hospitalizedDetails" defaultValue={reg?.medical_history?.general_health_screening?.hospitalized?.when_and_why} className="w-full p-1 border rounded text-xs mt-1" placeholder="When and why..." />
+                <label className="flex gap-2">
+                  <input
+                    type="checkbox"
+                    name="hospitalized"
+                    defaultChecked={
+                      reg?.medical_history?.general_health_screening
+                        ?.hospitalized?.status || false
+                    }
+                  />{" "}
+                  Hospitalized recently?
+                </label>
+                <input
+                  name="hospitalizedDetails"
+                  defaultValue={
+                    reg?.medical_history?.general_health_screening?.hospitalized
+                      ?.when_and_why
+                  }
+                  className="w-full p-1 border rounded text-xs mt-1"
+                  placeholder="When and why..."
+                />
               </div>
 
               <div className="border-t pt-1">
-                <label className="flex gap-2"><input type="checkbox" name="takingMeds" defaultChecked={reg?.medical_history?.general_health_screening?.taking_medication?.status || false} /> Taking medication?</label>
-                <textarea name="medicationList" defaultValue={reg?.medical_history?.general_health_screening?.taking_medication?.medication_list} className="w-full p-1 border rounded text-xs mt-1 h-10" placeholder="List medications..." />
+                <label className="flex gap-2">
+                  <input
+                    type="checkbox"
+                    name="takingMeds"
+                    defaultChecked={
+                      reg?.medical_history?.general_health_screening
+                        ?.taking_medication?.status || false
+                    }
+                  />{" "}
+                  Taking medication?
+                </label>
+                <textarea
+                  name="medicationList"
+                  defaultValue={
+                    reg?.medical_history?.general_health_screening
+                      ?.taking_medication?.medication_list
+                  }
+                  className="w-full p-1 border rounded text-xs mt-1 h-10"
+                  placeholder="List medications..."
+                />
               </div>
 
               <div className="flex gap-4 border-t pt-1">
-                <label className="flex gap-2"><input type="checkbox" name="usesTobacco" defaultChecked={reg?.medical_history?.general_health_screening?.uses_tobacco || false} /> Uses Tobacco</label>
-                <label className="flex gap-2"><input type="checkbox" name="usesDrugs" defaultChecked={reg?.medical_history?.general_health_screening?.uses_alcohol_or_drugs || false} /> Alcohol/Drugs</label>
+                <label className="flex gap-2">
+                  <input
+                    type="checkbox"
+                    name="usesTobacco"
+                    defaultChecked={
+                      reg?.medical_history?.general_health_screening
+                        ?.uses_tobacco || false
+                    }
+                  />{" "}
+                  Uses Tobacco
+                </label>
+                <label className="flex gap-2">
+                  <input
+                    type="checkbox"
+                    name="usesDrugs"
+                    defaultChecked={
+                      reg?.medical_history?.general_health_screening
+                        ?.uses_alcohol_or_drugs || false
+                    }
+                  />{" "}
+                  Alcohol/Drugs
+                </label>
               </div>
             </div>
 
@@ -1611,29 +2689,120 @@ function PatientSection({
             <div className="bg-white p-2 rounded">
               <p className="font-bold text-xs text-gray-500 mb-1">Allergies</p>
               <div className="grid grid-cols-2 gap-1 text-xs">
-                <label className="flex gap-1"><input type="checkbox" name="allergyAnaesthetic" defaultChecked={reg?.medical_history?.allergies?.local_anesthetic} /> Local Anaesthetic</label>
-                <label className="flex gap-1"><input type="checkbox" name="allergyPenicillin" defaultChecked={reg?.medical_history?.allergies?.penicillin_antibiotics} /> Penicillin</label>
-                <label className="flex gap-1"><input type="checkbox" name="allergySulfa" defaultChecked={reg?.medical_history?.allergies?.sulfa_drugs} /> Sulfa Drugs</label>
-                <label className="flex gap-1"><input type="checkbox" name="allergyAspirin" defaultChecked={reg?.medical_history?.allergies?.aspirin} /> Aspirin</label>
-                <label className="flex gap-1"><input type="checkbox" name="allergyLatex" defaultChecked={reg?.medical_history?.allergies?.latex} /> Latex</label>
+                <label className="flex gap-1">
+                  <input
+                    type="checkbox"
+                    name="allergyAnaesthetic"
+                    defaultChecked={
+                      reg?.medical_history?.allergies?.local_anesthetic
+                    }
+                  />{" "}
+                  Local Anaesthetic
+                </label>
+                <label className="flex gap-1">
+                  <input
+                    type="checkbox"
+                    name="allergyPenicillin"
+                    defaultChecked={
+                      reg?.medical_history?.allergies?.penicillin_antibiotics
+                    }
+                  />{" "}
+                  Penicillin
+                </label>
+                <label className="flex gap-1">
+                  <input
+                    type="checkbox"
+                    name="allergySulfa"
+                    defaultChecked={
+                      reg?.medical_history?.allergies?.sulfa_drugs
+                    }
+                  />{" "}
+                  Sulfa Drugs
+                </label>
+                <label className="flex gap-1">
+                  <input
+                    type="checkbox"
+                    name="allergyAspirin"
+                    defaultChecked={reg?.medical_history?.allergies?.aspirin}
+                  />{" "}
+                  Aspirin
+                </label>
+                <label className="flex gap-1">
+                  <input
+                    type="checkbox"
+                    name="allergyLatex"
+                    defaultChecked={reg?.medical_history?.allergies?.latex}
+                  />{" "}
+                  Latex
+                </label>
               </div>
-              <input name="allergyOthers" defaultValue={reg?.medical_history?.allergies?.others} className="w-full p-1 border rounded text-xs mt-1" placeholder="Other allergies..." />
+              <input
+                name="allergyOthers"
+                defaultValue={reg?.medical_history?.allergies?.others}
+                className="w-full p-1 border rounded text-xs mt-1"
+                placeholder="Other allergies..."
+              />
             </div>
 
             {/* Vitals */}
             <div className="grid grid-cols-3 gap-2">
-              <input name="bloodType" defaultValue={reg?.medical_history?.vitals?.blood_type} className="w-full p-2 border rounded text-sm" placeholder="Blood Type" />
-              <input name="bloodPressure" defaultValue={reg?.medical_history?.vitals?.blood_pressure} className="w-full p-2 border rounded text-sm" placeholder="BP" />
-              <input name="bleedingTime" defaultValue={reg?.medical_history?.vitals?.bleeding_time} className="w-full p-2 border rounded text-sm" placeholder="Bleeding Time" />
+              <input
+                name="bloodType"
+                defaultValue={reg?.medical_history?.vitals?.blood_type}
+                className="w-full p-2 border rounded text-sm"
+                placeholder="Blood Type"
+              />
+              <input
+                name="bloodPressure"
+                defaultValue={reg?.medical_history?.vitals?.blood_pressure}
+                className="w-full p-2 border rounded text-sm"
+                placeholder="BP"
+              />
+              <input
+                name="bleedingTime"
+                defaultValue={reg?.medical_history?.vitals?.bleeding_time}
+                className="w-full p-2 border rounded text-sm"
+                placeholder="Bleeding Time"
+              />
             </div>
 
             {/* Women Only */}
             <div className="bg-pink-50 p-2 rounded border border-pink-100">
-              <p className="font-bold text-xs text-pink-500 mb-1">For Women Only</p>
+              <p className="font-bold text-xs text-pink-500 mb-1">
+                For Women Only
+              </p>
               <div className="flex gap-4 text-xs">
-                <label className="flex gap-1"><input type="checkbox" name="isPregnant" defaultChecked={reg?.medical_history?.women_only?.is_pregnant || false} /> Pregnant</label>
-                <label className="flex gap-1"><input type="checkbox" name="isNursing" defaultChecked={reg?.medical_history?.women_only?.is_nursing || false} /> Nursing</label>
-                <label className="flex gap-1"><input type="checkbox" name="birthControl" defaultChecked={reg?.medical_history?.women_only?.taking_birth_control || false} /> Birth Control</label>
+                <label className="flex gap-1">
+                  <input
+                    type="checkbox"
+                    name="isPregnant"
+                    defaultChecked={
+                      reg?.medical_history?.women_only?.is_pregnant || false
+                    }
+                  />{" "}
+                  Pregnant
+                </label>
+                <label className="flex gap-1">
+                  <input
+                    type="checkbox"
+                    name="isNursing"
+                    defaultChecked={
+                      reg?.medical_history?.women_only?.is_nursing || false
+                    }
+                  />{" "}
+                  Nursing
+                </label>
+                <label className="flex gap-1">
+                  <input
+                    type="checkbox"
+                    name="birthControl"
+                    defaultChecked={
+                      reg?.medical_history?.women_only?.taking_birth_control ||
+                      false
+                    }
+                  />{" "}
+                  Birth Control
+                </label>
               </div>
             </div>
 
@@ -1641,19 +2810,23 @@ function PatientSection({
               name="conditions"
               placeholder="Conditions Checklist (comma separated for now)"
               className="w-full p-2 border rounded text-sm h-12"
-              defaultValue={reg?.medical_history?.conditions_checklist?.join(", ")}
+              defaultValue={reg?.medical_history?.conditions_checklist?.join(
+                ", ",
+              )}
             />
           </div>
         )}
 
         <button
           disabled={isSaving}
-          className={`w-full text-white py-3 rounded font-bold transition shadow-sm ${isSaving ? 'bg-gray-400' : 'bg-green-700 hover:bg-green-800'}`}
+          className={`w-full text-white py-3 rounded font-bold transition shadow-sm ${isSaving ? "bg-gray-400" : "bg-green-700 hover:bg-green-800"}`}
         >
           {isSaving ? "Saving Comprehensive Record..." : "Update Full Record"}
         </button>
         {status && (
-          <p className={`text-center text-[10px] font-bold mt-1 ${status.success ? 'text-green-600' : 'text-red-600'}`}>
+          <p
+            className={`text-center text-[10px] font-bold mt-1 ${status.success ? "text-green-600" : "text-red-600"}`}
+          >
             {status.success ? "Record Saved Successfully!" : status.message}
           </p>
         )}
@@ -1675,7 +2848,8 @@ function ClinicScheduleSection() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     getClinicScheduleAction(date).then((res) => {
-      if (res.success && res.data) setSchedule(res.data as AppointmentWithPatient[]);
+      if (res.success && res.data)
+        setSchedule(res.data as AppointmentWithPatient[]);
       setLoading(false);
     });
   }, [date]);
@@ -1750,7 +2924,7 @@ function ClinicScheduleSection() {
                 onChange={(e) =>
                   updateAppointmentStatusAction(
                     app.id,
-                    e.target.value as AppointmentStatus
+                    e.target.value as AppointmentStatus,
                   ).then(refresh)
                 }
                 className="text-[10px] p-1 border rounded flex-1 uppercase font-bold"
@@ -1806,39 +2980,198 @@ function ClinicScheduleSection() {
 
 function ProceduresSection() {
   const [procedures, setProcedures] = useState<DentalProcedure[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [recipe, setRecipe] = useState<
+    { inventoryItemId: string; quantity: number; name: string }[]
+  >([]);
+
+  // Edit State
+  const [editingProc, setEditingProc] = useState<DentalProcedure | null>(null);
+
   const [state, formAction, isPending] = useActionState(createProcedureAction, {
     success: false,
   });
+
+  const fetchProcedures = async () => {
+    const res = await getAllProcedures(false); // Fetch all including inactive
+    if (res.success) setProcedures(res.data || []);
+  };
+
+  const fetchInventory = async () => {
+    const res = await getInventory();
+    if (res.success) {
+      // Filter to only consumables as requested
+      const consumables = (res.data || []).filter(
+        (i) => i.category === "consumable",
+      );
+      setInventory(consumables);
+    }
+  };
+
   useEffect(() => {
-    getAllProcedures().then((res) => {
-      if (res.success) setProcedures(res.data || []);
-    });
+    fetchProcedures();
+    fetchInventory();
   }, [state.success]);
+
+  const startEdit = (p: DentalProcedure) => {
+    setEditingProc(p);
+    // Load existing recipe
+    const existingRecipe = (p.requiredInventory || []).map((item) => ({
+      inventoryItemId: item.inventoryItemId,
+      quantity: item.quantity,
+      name:
+        inventory.find((i) => i.id === item.inventoryItemId)?.name ||
+        "Unknown Item",
+    }));
+    setRecipe(existingRecipe);
+  };
+
+  const cancelEdit = () => {
+    setEditingProc(null);
+    setRecipe([]);
+  };
+
+  const handleUpdateSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingProc) return;
+
+    const formData = new FormData(e.currentTarget);
+    // Add the recipe to the form data
+    formData.set(
+      "requiredInventory",
+      JSON.stringify(
+        recipe.map((r) => ({
+          inventoryItemId: r.inventoryItemId,
+          quantity: r.quantity,
+        })),
+      ),
+    );
+
+    const res = await updateProcedureAction(editingProc.id, formData);
+    if (res.success) {
+      alert("Procedure updated!");
+      setEditingProc(null);
+      setRecipe([]);
+      fetchProcedures();
+    } else {
+      alert("Error: " + res.error);
+    }
+  };
+
+  const addToRecipe = (itemId: string) => {
+    const item = inventory.find((i) => i.id === itemId);
+    if (!item) return;
+    if (recipe.some((r) => r.inventoryItemId === itemId)) return;
+    setRecipe([
+      ...recipe,
+      { inventoryItemId: itemId, quantity: 1, name: item.name },
+    ]);
+  };
+
+  const updateRecipeQty = (id: string, qty: number) => {
+    setRecipe(
+      recipe.map((r) =>
+        r.inventoryItemId === id ? { ...r, quantity: Math.max(1, qty) } : r,
+      ),
+    );
+  };
+
+  const removeFromRecipe = (id: string) => {
+    setRecipe(recipe.filter((r) => r.inventoryItemId !== id));
+  };
+
   return (
     <div className={`${styles.cardOrange} space-y-4`}>
       <h3 className={`${styles.cardTitle} text-orange-900`}>
-        Procedures (Admin)
+        Procedures (Blueprints)
       </h3>
-      <div className="max-h-32 overflow-y-auto border rounded bg-white p-2 text-xs space-y-1">
-        {procedures.map((p) => (
-          <div key={p.id} className="flex justify-between border-b pb-1">
-            <span>
-              {p.code} - {p.name}
-            </span>
-            <span className="font-bold">${p.basePrice}</span>
-          </div>
-        ))}
+
+      {/* List */}
+      <div className="max-h-48 overflow-y-auto border rounded bg-white p-2 text-xs space-y-2">
+        {procedures.length === 0 ? (
+          <p className="italic text-gray-400 text-center">
+            No procedures defined.
+          </p>
+        ) : (
+          procedures.map((p) => (
+            <div
+              key={p.id}
+              className="border-b last:border-0 pb-2 flex justify-between items-start"
+            >
+              <div className="flex-1">
+                <div className="flex justify-between font-bold pr-2">
+                  <span
+                    className={p.isActive ? "" : "text-gray-400 line-through"}
+                  >
+                    {p.code} - {p.name}
+                  </span>
+                  <span>${p.basePrice}</span>
+                </div>
+                {p.requiredInventory && p.requiredInventory.length > 0 && (
+                  <div className="text-[9px] text-orange-600 flex gap-1 flex-wrap mt-1">
+                    {p.requiredInventory.map((item, idx) => {
+                      const invName =
+                        inventory.find((i) => i.id === item.inventoryItemId)
+                          ?.name || "Item";
+                      return (
+                        <span
+                          key={idx}
+                          className="bg-orange-50 px-1 rounded border border-orange-100"
+                        >
+                          {invName} x{item.quantity}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => startEdit(p)}
+                className="p-1 bg-gray-100 hover:bg-orange-100 text-orange-600 rounded"
+              >
+                ✎
+              </button>
+            </div>
+          ))
+        )}
       </div>
-      <form action={formAction} className="space-y-2">
+
+      {/* Form */}
+      <form
+        onSubmit={editingProc ? handleUpdateSubmit : undefined}
+        action={editingProc ? undefined : formAction}
+        className="space-y-3 border-t pt-3"
+      >
+        <div className="flex justify-between items-center">
+          <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+            {editingProc
+              ? `Editing: ${editingProc.code}`
+              : "Create New Blueprint"}
+          </p>
+          {editingProc && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="text-[9px] text-red-500 font-bold uppercase underline"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+
         <div className="flex gap-2">
           <input
             name="code"
+            defaultValue={editingProc?.code}
+            key={editingProc?.id}
             placeholder="Code"
             className="w-1/3 p-2 text-sm border rounded"
             required
           />
           <input
             name="name"
+            defaultValue={editingProc?.name}
+            key={editingProc?.id + "n"}
             placeholder="Name"
             className="w-2/3 p-2 text-sm border rounded"
             required
@@ -1847,15 +3180,94 @@ function ProceduresSection() {
         <input
           name="basePrice"
           type="number"
-          placeholder="Price"
+          defaultValue={editingProc?.basePrice}
+          key={editingProc?.id + "p"}
+          placeholder="Standard Price ($)"
           className="w-full p-2 text-sm border rounded"
           required
         />
+
+        {/* Recipe Editor */}
+        <div className="bg-orange-50/50 p-2 rounded border border-orange-100 space-y-2">
+          <div className="flex justify-between items-center">
+            <p className="text-[10px] font-bold text-orange-800 uppercase tracking-tighter">
+              Supplies Required (Consumables)
+            </p>
+            <select
+              className="text-[10px] p-1 border rounded bg-white"
+              onChange={(e) => {
+                addToRecipe(e.target.value);
+                e.target.value = "";
+              }}
+            >
+              <option value="">+ Add...</option>
+              {inventory.map((i) => (
+                <option
+                  key={i.id}
+                  value={i.id}
+                  disabled={recipe.some((r) => r.inventoryItemId === i.id)}
+                >
+                  {i.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            {recipe.map((r) => (
+              <div
+                key={r.inventoryItemId}
+                className="flex justify-between items-center bg-white p-1 rounded border text-[10px]"
+              >
+                <span className="truncate pr-2">{r.name}</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={r.quantity}
+                    onChange={(e) =>
+                      updateRecipeQty(r.inventoryItemId, Number(e.target.value))
+                    }
+                    className="w-8 p-0.5 border rounded text-center"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeFromRecipe(r.inventoryItemId)}
+                    className="text-red-500 font-bold px-1"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            ))}
+            {recipe.length === 0 && (
+              <p className="text-[10px] text-gray-400 italic text-center py-1">
+                No supplies linked.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <input
+          type="hidden"
+          name="requiredInventory"
+          value={JSON.stringify(
+            recipe.map((r) => ({
+              inventoryItemId: r.inventoryItemId,
+              quantity: r.quantity,
+            })),
+          )}
+        />
+        <input type="hidden" name="isActive" value="true" />
+
         <button
           disabled={isPending}
-          className="w-full bg-orange-700 text-white py-2 rounded font-bold"
+          className={`w-full py-2 rounded font-bold text-sm shadow-sm transition-all text-white ${editingProc ? "bg-blue-600 hover:bg-blue-700" : "bg-orange-600 hover:bg-orange-700"}`}
         >
-          Add
+          {isPending
+            ? "Processing..."
+            : editingProc
+              ? "Save Changes"
+              : "Create Blueprint"}
         </button>
       </form>
     </div>
@@ -1866,7 +3278,7 @@ function InventorySection() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [state, formAction, isPending] = useActionState(
     addInventoryItemAction,
-    { success: false }
+    { success: false },
   );
   const refresh = useCallback(() => {
     getInventory().then((res) => {
@@ -1974,7 +3386,7 @@ function DentistScheduleSection() {
   const [schedule, setSchedule] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTreatment, setActiveTreatment] = useState<Appointment | null>(
-    null
+    null,
   );
   const refresh = useCallback(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -2229,17 +3641,25 @@ export default function BackendTestPage() {
         {/* Clinical / Staff Sections */}
         <div className={styles.column}>
           <PatientSection />
-          {isStaff && <BillingOverviewSection onSelectBill={(id) => {
-             // This is a bit of a hack to talk between components in this simple lab page
-             // Normally we'd use a shared state or context.
-             const input = document.querySelector('input[placeholder="Appointment ID"]') as HTMLInputElement;
-             if (input) {
-                input.value = id;
-                // Force a change event or just call the load function if we had access.
-                // In this lab, we'll just alert the user to click "Load" manually after we paste it.
-                alert("ID pasted into Billing Manager. Click 'Load' to manage.");
-             }
-          }} />}
+          {isStaff && (
+            <BillingOverviewSection
+              onSelectBill={(id) => {
+                // This is a bit of a hack to talk between components in this simple lab page
+                // Normally we'd use a shared state or context.
+                const input = document.querySelector(
+                  'input[placeholder="Appointment ID"]',
+                ) as HTMLInputElement;
+                if (input) {
+                  input.value = id;
+                  // Force a change event or just call the load function if we had access.
+                  // In this lab, we'll just alert the user to click "Load" manually after we paste it.
+                  alert(
+                    "ID pasted into Billing Manager. Click 'Load' to manage.",
+                  );
+                }
+              }}
+            />
+          )}
           {isStaff && <PatientDirectorySection />}
           {isStaff && <InventorySection />}
         </div>
@@ -2250,6 +3670,8 @@ export default function BackendTestPage() {
           {role === "dentist" && <DentistScheduleSection />}
           {role === "admin" && (
             <div className={styles.column}>
+              <ClinicSettingsSection />
+              <DentistServiceManager />
               <CreateEmployeeForm />
               <ServiceCatalogSection />
               <ProceduresSection />

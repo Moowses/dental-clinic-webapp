@@ -84,11 +84,21 @@ export async function updateProcedureAction(
     return { success: false, error: "Unauthorized" };
   }
 
+  // Handle number conversion and complex types
   const rawData = Object.fromEntries(data);
-  const formattedData: Partial<DentalProcedure> = {
+  const formattedData: any = {
     ...rawData,
     basePrice: Number(rawData.basePrice),
   };
+
+  // Parse requiredInventory if provided as a JSON string
+  if (rawData.requiredInventory) {
+    try {
+      formattedData.requiredInventory = JSON.parse(rawData.requiredInventory as string);
+    } catch (e) {
+      formattedData.requiredInventory = [];
+    }
+  }
 
   if (rawData.isActive !== undefined) {
     formattedData.isActive = rawData.isActive === "true" || rawData.isActive === "on";
