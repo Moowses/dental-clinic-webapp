@@ -2,6 +2,7 @@
 "use client";
 
 import type { Appointment } from "@/lib/types/appointment";
+import { cancelAppointmentAction } from "@/app/actions/appointment-actions";
 
 export default function AppointmentRowActions({
   appointment,
