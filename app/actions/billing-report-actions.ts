@@ -1,58 +1,88 @@
-"use server";
+// app/actions/billing-report-actions.ts
+// NOTE:
+// This file is imported by a Client Component (BillingReportPanel.tsx).
+// Do NOT add `"use server"` here.
+//
+// Why?
+// - Firestore security rules require request.auth for reads.
+// - If this runs as a Server Action, there is no Firebase Auth context,
+//   so reads to `billing_records` will fail with:
+//   "Missing or insufficient permissions."
 
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  Timestamp,
+  where,
+} from "firebase/firestore";
+
 import { db } from "@/lib/firebase/firebase";
+import { getUserProfile } from "@/lib/services/user-service";
+
+type ReportRow = {
+  id: string;
+  appointmentId?: string;
+  patientId?: string;
+  patientName?: string;
+  totalAmount: number;
+  remainingBalance: number;
+  status: string;
+  createdAt?: string;
+};
 
 export async function getBillingReport(rangeDays: number) {
-  const { fromStr, toStr } = computeDateRangeStrings(rangeDays);
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) throw new Error("Not authenticated");
 
+  // Ensure only staff can view the report (align with your app behavior)
+  const profile = await getUserProfile(auth.currentUser.uid);
+  if (!profile.success || !profile.data) throw new Error("Unable to load user profile");
+  if (profile.data.role === "client") throw new Error("Unauthorized: Staff only");
+
+  const { fromTs, toTs } = computeDateRangeTimestamps(rangeDays);
+
+  // Your documents have `createdAt` (Timestamp). Using date strings will not work.
+  // Also, range queries require an orderBy on the same field.
   const q = query(
     collection(db, "billing_records"),
-    where("date", ">=", fromStr),
-    where("date", "<=", toStr)
+    where("createdAt", ">=", fromTs),
+    where("createdAt", "<=", toTs),
+    orderBy("createdAt", "desc")
   );
 
   const snap = await getDocs(q);
 
-  const rows = snap.docs
-    .map((doc) => {
-      const a: any = doc.data();
-      const total = Number(a.totalBill ?? 0);
-      if (!Number.isFinite(total) || total <= 0) return null;
+  const rows: ReportRow[] = snap.docs.map((doc) => {
+    const a: any = doc.data();
 
-      const paymentStatus = String(a.paymentStatus ?? "").toLowerCase();
-      const status =
-        paymentStatus === "paid"
-          ? "paid"
-          : paymentStatus === "partial"
-          ? "partial"
-          : "unpaid";
+    const totalAmount = Number(a.totalAmount ?? a.totalBill ?? a.total ?? 0);
+    const remainingBalance = Number(a.remainingBalance ?? a.remaining ?? 0);
+    const status = String(a.status ?? a.paymentStatus ?? "unpaid").toLowerCase();
 
-      const remainingBalance =
-        status === "paid"
-          ? 0
-          : status === "partial"
-          ? Number(a.remainingBalance ?? total)
-          : total;
+    const createdAtIso =
+      a.createdAt?.toDate?.()?.toISOString?.() ??
+      a.updatedAt?.toDate?.()?.toISOString?.() ??
+      undefined;
 
-      const createdAt =
-        a.paymentDate?.toDate?.()?.toISOString?.() ??
-        a.createdAt?.toDate?.()?.toISOString?.() ??
-        (a.date && a.time ? new Date(`${a.date}T${a.time}:00`).toISOString() : undefined);
+    return {
+      id: doc.id,
+      appointmentId: String(a.appointmentId ?? doc.id),
+      patientId: a.patientId,
+      patientName: a.patientName,
+      totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+      remainingBalance: Number.isFinite(remainingBalance)
+        ? remainingBalance
+        : Number.isFinite(totalAmount)
+        ? totalAmount
+        : 0,
+      status,
+      createdAt: createdAtIso,
+    };
+  });
 
-      return {
-        id: doc.id,
-        appointmentId: doc.id,
-        patientId: a.patientId,
-        patientName: a.patientName,
-        totalAmount: total,
-        remainingBalance: Number.isFinite(remainingBalance) ? remainingBalance : total,
-        status,
-        createdAt,
-      };
-    })
-    .filter(Boolean) as any[];
-
+  // Summary
   let totalBilled = 0;
   let totalOutstanding = 0;
   const byStatus: Record<string, number> = {};
@@ -78,30 +108,29 @@ export async function getBillingReport(rangeDays: number) {
 }
 
 /**
- * Backwards-compatible alias for the report panel.
- * BillingReportPanel currently calls getBillingDetailsAction(rangeDays as string).
- * Keeping this avoids breaking other imports while fixing the runtime error.
+ * Backwards-compatible alias.
+ * Some older UI versions called `getBillingDetailsAction(String(rangeDays))`.
  */
 export async function getBillingDetailsAction(rangeDays: string | number) {
-  const n =
-    typeof rangeDays === "number"
-      ? rangeDays
-      : Number.parseInt(String(rangeDays), 10);
-
+  const n = typeof rangeDays === "number" ? rangeDays : Number.parseInt(String(rangeDays), 10);
   const safeDays = Number.isFinite(n) && n > 0 ? n : 30;
   return getBillingReport(safeDays);
 }
 
-function computeDateRangeStrings(rangeDays: number) {
+function computeDateRangeTimestamps(rangeDays: number) {
+  const safe = Number.isFinite(rangeDays) && rangeDays > 0 ? rangeDays : 30;
+
   const now = new Date();
   const start = new Date(now);
-  start.setDate(now.getDate() - (rangeDays - 1));
-  return { fromStr: toLocalYYYYMMDD(start), toStr: toLocalYYYYMMDD(now) };
-}
+  start.setDate(now.getDate() - (safe - 1));
 
-function toLocalYYYYMMDD(d: Date) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  // Normalize to day boundaries (local time) for a nicer UX.
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+
+  return {
+    fromTs: Timestamp.fromDate(start),
+    toTs: Timestamp.fromDate(end),
+  };
 }
