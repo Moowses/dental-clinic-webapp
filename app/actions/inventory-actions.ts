@@ -92,17 +92,29 @@ export async function getInventoryReport() {
   const rows = snap.docs.map((doc) => {
     const data: any = doc.data();
 
-    const qtyOnHand = Number(data.qtyOnHand ?? data.quantity ?? 0);
+    // Firestore uses: stock, minThreshold
+    // Keep fallbacks for older shapes: qtyOnHand, quantity, reorderLevel
+    const qtyOnHand = Number(
+      data.stock ?? data.qtyOnHand ?? data.quantity ?? 0
+    );
+
+    const reorderLevelRaw = data.minThreshold ?? data.reorderLevel;
     const reorderLevel =
-      typeof data.reorderLevel === "number" ? data.reorderLevel : undefined;
+      typeof reorderLevelRaw === "number"
+        ? reorderLevelRaw
+        : reorderLevelRaw != null && reorderLevelRaw !== ""
+        ? Number(reorderLevelRaw)
+        : undefined;
 
     return {
       id: doc.id,
       name: data.name ?? "Unnamed Item",
       sku: data.sku,
       category: data.category,
-      qtyOnHand,
-      reorderLevel,
+      qtyOnHand: Number.isFinite(qtyOnHand) ? qtyOnHand : 0,
+      reorderLevel: Number.isFinite(reorderLevel as number)
+        ? (reorderLevel as number)
+        : undefined,
       unit: data.unit,
       updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() ?? data.updatedAt,
     };

@@ -1,11 +1,45 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 
-import { createProcedureAction } from "@/app/actions/clinic-actions";
+import {
+  createProcedureAction,
+  updateProcedureAction,
+  deleteProcedureAction,
+} from "@/app/actions/clinic-actions";
+
+import {
+  getAllServicesAction,
+  createServiceAction,
+  updateServiceAction,
+  toggleServiceStatusAction,
+} from "@/app/actions/service-actions";
+
+import {
+  getDentistListAction,
+  updateDentistServicesAction,
+} from "@/app/actions/dentist-actions";
+
 import { getAllProcedures } from "@/lib/services/clinic-service";
+import { getInventory } from "@/lib/services/inventory-service";
+import { getDentistProfile } from "@/lib/services/dentist-service";
+
 import type { DentalProcedure } from "@/lib/types/clinic";
+import type { DentalService } from "@/lib/types/service";
+
+// Keep types lightweight here to avoid repo-wide mismatches
+type InventoryItemLite = {
+  id: string;
+  name: string;
+  category?: string;
+};
+
+type DentistLite = {
+  uid: string;
+  email?: string;
+  displayName?: string;
+};
 
 function Card({
   title,
@@ -30,76 +64,757 @@ function Card({
 const inputBase =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-300";
 
+const pillBase =
+  "inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-extrabold";
+
+type SectionKey = "blueprints" | "catalog" | "dentist";
+
 export default function ProceduresPanel() {
+  const [section, setSection] = useState<SectionKey>("blueprints");
+
+  return (
+    <Card
+      title="Procedures & Services"
+      subtitle="Manage procedure blueprints, public service catalog, and dentist capabilities"
+    >
+      <div className="space-y-5">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setSection("blueprints")}
+            className={`px-4 py-2 rounded-xl font-extrabold text-sm transition ${
+              section === "blueprints"
+                ? "bg-slate-900 text-white"
+                : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+            }`}
+          >
+            Procedures (Blueprints)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSection("catalog")}
+            className={`px-4 py-2 rounded-xl font-extrabold text-sm transition ${
+              section === "catalog"
+                ? "bg-slate-900 text-white"
+                : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+            }`}
+          >
+            Service Catalog (Website)
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSection("dentist")}
+            className={`px-4 py-2 rounded-xl font-extrabold text-sm transition ${
+              section === "dentist"
+                ? "bg-slate-900 text-white"
+                : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+            }`}
+          >
+            Dentist Service Manager
+          </button>
+        </div>
+
+        {section === "blueprints" ? <ProceduresBlueprintsSection /> : null}
+        {section === "catalog" ? <ServiceCatalogSection /> : null}
+        {section === "dentist" ? <DentistServiceManager /> : null}
+      </div>
+    </Card>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                BLUEPRINTS                                  */
+/* -------------------------------------------------------------------------- */
+
+function ProceduresBlueprintsSection() {
   const [procedures, setProcedures] = useState<DentalProcedure[]>([]);
-  const [state, formAction, isPending] = useActionState(createProcedureAction, {
+  const [inventory, setInventory] = useState<InventoryItemLite[]>([]);
+
+  const [recipe, setRecipe] = useState<
+    { inventoryItemId: string; quantity: number; name: string }[]
+  >([]);
+
+  const [editingProc, setEditingProc] = useState<DentalProcedure | null>(null);
+
+  const [createState, createAction, creating] = useActionState(
+    createProcedureAction,
+    { success: false },
+  );
+
+  const requiredInventoryJson = useMemo(() => {
+    return JSON.stringify(
+      recipe.map((r) => ({
+        inventoryItemId: r.inventoryItemId,
+        quantity: r.quantity,
+      })),
+    );
+  }, [recipe]);
+
+  const fetchProcedures = async () => {
+    const res = await (getAllProcedures as any)(false); // include inactive
+    if (res?.success) setProcedures(res.data || []);
+  };
+
+  const fetchInventory = async () => {
+    const res = await getInventory();
+    if (res?.success) {
+      const consumables = (res.data || []).filter(
+        (i: any) => i?.category === "consumable",
+      );
+      setInventory(consumables);
+    }
+  };
+
+  useEffect(() => {
+    fetchProcedures();
+    fetchInventory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createState.success]);
+
+  const startEdit = (p: DentalProcedure) => {
+    setEditingProc(p);
+
+    const existingRecipe = ((p as any).requiredInventory || []).map((item: any) => ({
+      inventoryItemId: item.inventoryItemId,
+      quantity: item.quantity,
+      name: inventory.find((i) => i.id === item.inventoryItemId)?.name || "Unknown Item",
+    }));
+
+    setRecipe(existingRecipe);
+  };
+
+  const cancelEdit = () => {
+    setEditingProc(null);
+    setRecipe([]);
+  };
+
+  const addToRecipe = (itemId: string) => {
+    const item = inventory.find((i) => i.id === itemId);
+    if (!item) return;
+    if (recipe.some((r) => r.inventoryItemId === itemId)) return;
+    setRecipe([...recipe, { inventoryItemId: itemId, quantity: 1, name: item.name }]);
+  };
+
+  const updateRecipeQty = (id: string, qty: number) => {
+    setRecipe(
+      recipe.map((r) =>
+        r.inventoryItemId === id ? { ...r, quantity: Math.max(1, qty) } : r,
+      ),
+    );
+  };
+
+  const removeFromRecipe = (id: string) => {
+    setRecipe(recipe.filter((r) => r.inventoryItemId !== id));
+  };
+
+  const handleUpdateSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingProc) return;
+
+    const formData = new FormData(e.currentTarget);
+    formData.set("requiredInventory", requiredInventoryJson);
+
+    const res = await updateProcedureAction((editingProc as any).id, formData);
+    if (res?.success) {
+      alert("Procedure updated!");
+      cancelEdit();
+      fetchProcedures();
+    } else {
+      alert("Error: " + (res?.error || "Unknown error"));
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    const ok = confirm("Delete this procedure? This cannot be undone.");
+    if (!ok) return;
+
+    const res = await deleteProcedureAction(id);
+    if (res?.success) {
+      alert("Deleted.");
+      if (editingProc?.id === id) cancelEdit();
+      fetchProcedures();
+    } else {
+      alert("Error: " + (res?.error || "Unknown error"));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+        <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+          {procedures.length === 0 ? (
+            <div className="p-4 text-sm text-slate-500 italic">
+              No procedures defined yet. Add your first blueprint below.
+            </div>
+          ) : (
+            procedures.map((p: any) => {
+              const active = p?.isActive !== false;
+              return (
+                <div
+                  key={p.id}
+                  className="p-4 flex items-start justify-between gap-4"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p
+                        className={`font-extrabold text-slate-900 truncate ${
+                          !active ? "line-through text-slate-400" : ""
+                        }`}
+                      >
+                        {p.code} — {p.name}
+                      </p>
+
+                      <span
+                        className={`${pillBase} ${
+                          active
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                            : "bg-rose-50 text-rose-700 border border-rose-100"
+                        }`}
+                      >
+                        {active ? "ACTIVE" : "INACTIVE"}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-500">ID: {p.id}</p>
+
+                    {Array.isArray(p.requiredInventory) &&
+                    p.requiredInventory.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {p.requiredInventory.map((ri: any, idx: number) => {
+                          const invName =
+                            inventory.find((i) => i.id === ri.inventoryItemId)?.name ||
+                            "Item";
+                          return (
+                            <span
+                              key={`${p.id}-${idx}`}
+                              className="text-[11px] font-bold rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700"
+                              title={ri.inventoryItemId}
+                            >
+                              {invName} ×{ri.quantity}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="font-extrabold text-slate-900">
+                      ₱{Number(p.basePrice || 0).toLocaleString()}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => startEdit(p)}
+                      className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-900 font-extrabold text-sm"
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(p.id)}
+                      className="px-3 py-2 rounded-xl bg-rose-50 text-rose-700 font-extrabold text-sm hover:bg-rose-100"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-extrabold text-slate-900">
+              {editingProc ? "Edit Procedure Blueprint" : "Add New Procedure Blueprint"}
+            </p>
+            <p className="text-xs text-slate-500">
+              Define code, price, active state, and consumable requirements.
+            </p>
+          </div>
+
+          {editingProc ? (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="text-xs font-extrabold text-rose-600 hover:underline"
+            >
+              Cancel
+            </button>
+          ) : null}
+        </div>
+
+        <form
+          className="mt-4 space-y-3"
+          action={editingProc ? undefined : createAction}
+          onSubmit={editingProc ? handleUpdateSubmit : undefined}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input
+              name="code"
+              placeholder="Code"
+              className={inputBase}
+              required
+              defaultValue={(editingProc as any)?.code || ""}
+              key={`code-${(editingProc as any)?.id || "new"}`}
+            />
+            <input
+              name="name"
+              placeholder="Procedure name"
+              className={`${inputBase} md:col-span-2`}
+              required
+              defaultValue={(editingProc as any)?.name || ""}
+              key={`name-${(editingProc as any)?.id || "new"}`}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input
+              name="basePrice"
+              type="number"
+              placeholder="Base price"
+              className={inputBase}
+              required
+              defaultValue={(editingProc as any)?.basePrice ?? ""}
+              key={`price-${(editingProc as any)?.id || "new"}`}
+            />
+
+            <label className="md:col-span-2 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+              <input
+                type="checkbox"
+                name="isActive"
+                defaultChecked={(editingProc as any)?.isActive !== false}
+                key={`active-${(editingProc as any)?.id || "new"}`}
+              />
+              <span className="text-sm font-bold text-slate-700">Active</span>
+            </label>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+              <div>
+                <p className="text-xs font-extrabold text-slate-900">Consumable Requirements</p>
+                <p className="text-xs text-slate-500">
+                  Add consumables that should be deducted when this procedure is completed.
+                </p>
+              </div>
+
+              <select
+                className={`${inputBase} md:w-72`}
+                defaultValue=""
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (!id) return;
+                  addToRecipe(id);
+                  e.currentTarget.value = "";
+                }}
+              >
+                <option value="">+ Add consumable…</option>
+                {inventory.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {recipe.length === 0 ? (
+              <div className="mt-3 text-sm text-slate-500 italic">
+                No consumables assigned yet.
+              </div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {recipe.map((r) => (
+                  <div
+                    key={r.inventoryItemId}
+                    className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-extrabold text-slate-900 text-sm truncate">{r.name}</p>
+                      <p className="text-xs text-slate-500 font-mono truncate">
+                        {r.inventoryItemId}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        className="w-20 rounded-xl border border-slate-200 px-3 py-2 text-sm font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-300"
+                        value={r.quantity}
+                        onChange={(e) => updateRecipeQty(r.inventoryItemId, Number(e.target.value))}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => removeFromRecipe(r.inventoryItemId)}
+                        className="px-3 py-2 rounded-xl bg-rose-50 text-rose-700 font-extrabold text-sm hover:bg-rose-100"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <input type="hidden" name="requiredInventory" value={requiredInventoryJson} readOnly />
+          </div>
+
+          <button
+            type="submit"
+            disabled={creating}
+            className={`w-full rounded-xl py-2.5 font-extrabold text-sm transition ${
+              creating
+                ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                : "bg-teal-700 text-white hover:bg-teal-800"
+            }`}
+          >
+            {creating
+              ? editingProc
+                ? "Updating…"
+                : "Saving…"
+              : editingProc
+                ? "Update Procedure"
+                : "Add Procedure"}
+          </button>
+
+          {createState?.error ? (
+            <div className="text-sm font-bold text-rose-700">{createState.error}</div>
+          ) : null}
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              SERVICE CATALOG                               */
+/* -------------------------------------------------------------------------- */
+
+function ServiceCatalogSection() {
+  const [services, setServices] = useState<DentalService[]>([]);
+  const [editingService, setEditingService] = useState<DentalService | null>(null);
+
+  const [createState, createAction, creating] = useActionState(createServiceAction, {
     success: false,
   });
 
+  const fetchServices = async () => {
+    const res = await getAllServicesAction();
+    if (res?.success && res.data) setServices((res.data as DentalService[]) || []);
+  };
+
   useEffect(() => {
-    getAllProcedures().then((res) => {
-      if (res.success) setProcedures(res.data || []);
-    });
-  }, [state.success]);
+    fetchServices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createState.success]);
+
+  const handleUpdateSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingService) return;
+
+    const formData = new FormData(e.currentTarget);
+    const res = await updateServiceAction(editingService.id, formData);
+
+    if (res?.success) {
+      alert("Service updated!");
+      setEditingService(null);
+      fetchServices();
+    } else {
+      alert("Error: " + (res?.error || "Unknown error"));
+    }
+  };
+
+  const toggleStatus = async (s: DentalService) => {
+    await toggleServiceStatusAction(s.id, Boolean(s.isActive));
+    fetchServices();
+  };
 
   return (
-    <Card title="Procedures" subtitle="Admin • Manage clinic services and pricing">
-      <div className="space-y-4">
-        <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
-          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
-            {procedures.length === 0 ? (
-              <div className="p-4 text-sm text-slate-500 italic">
-                No procedures yet. Add your first procedure below.
-              </div>
-            ) : (
-              procedures.map((p) => (
-                <div key={p.id} className="p-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="font-extrabold text-slate-900 truncate">
-                      {p.code} — {p.name}
-                    </p>
-                    <p className="text-xs text-slate-500">ID: {p.id}</p>
-                  </div>
-                  <div className="font-extrabold text-slate-900">P{p.basePrice}</div>
+    <div className="space-y-4">
+      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+        <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+          {services.length === 0 ? (
+            <div className="p-4 text-sm text-slate-500 italic">No services found.</div>
+          ) : (
+            services.map((s) => (
+              <div key={s.id} className="p-4 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-extrabold text-slate-900 truncate">{s.name}</p>
+                  <p className="text-xs text-slate-500">
+                    ₱{Number((s as any).price || 0).toLocaleString()} •{" "}
+                    <span className={s.isActive ? "text-emerald-700" : "text-rose-700"}>
+                      {s.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </p>
                 </div>
-              ))
-            )}
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus(s)}
+                    className={`px-3 py-2 rounded-xl font-extrabold text-sm ${
+                      s.isActive
+                        ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                    }`}
+                  >
+                    {s.isActive ? "Set Inactive" : "Set Active"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditingService(s)}
+                    className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-900 font-extrabold text-sm"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-extrabold text-slate-900">
+              {editingService ? "Edit Catalog Service" : "Add New Catalog Service"}
+            </p>
+            <p className="text-xs text-slate-500">
+              These are public-facing services (website).
+            </p>
           </div>
+
+          {editingService ? (
+            <button
+              type="button"
+              onClick={() => setEditingService(null)}
+              className="text-xs font-extrabold text-rose-600 hover:underline"
+            >
+              Cancel
+            </button>
+          ) : null}
         </div>
 
-        <form action={formAction} className="space-y-2">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <input name="code" placeholder="Code" className={inputBase} required />
-            <input name="name" placeholder="Procedure name" className={`${inputBase} md:col-span-2`} required />
-          </div>
-
+        <form
+          className="mt-4 space-y-3"
+          action={editingService ? undefined : createAction}
+          onSubmit={editingService ? handleUpdateSubmit : undefined}
+        >
           <input
-            name="basePrice"
-            type="number"
-            placeholder="Base price"
+            name="name"
+            placeholder="Service Name (e.g. Braces)"
             className={inputBase}
             required
+            defaultValue={editingService?.name || ""}
+            key={`svc-name-${editingService?.id || "new"}`}
+          />
+
+          <input
+            name="price"
+            type="number"
+            placeholder="Starting Price"
+            className={inputBase}
+            required
+            defaultValue={(editingService as any)?.price ?? ""}
+            key={`svc-price-${editingService?.id || "new"}`}
+          />
+
+          <textarea
+            name="description"
+            placeholder="Public description"
+            className={`${inputBase} h-24`}
+            defaultValue={(editingService as any)?.description || ""}
+            key={`svc-desc-${editingService?.id || "new"}`}
+          />
+
+          {/* Required by serviceSchema in your service-actions */}
+          <input type="hidden" name="category" value="general" />
+          <input type="hidden" name="durationMinutes" value="30" />
+          <input
+            type="hidden"
+            name="isActive"
+            value={editingService ? String(Boolean(editingService.isActive)) : "true"}
           />
 
           <button
             type="submit"
-            disabled={isPending}
-            className="w-full rounded-xl bg-teal-700 text-white py-2.5 font-extrabold hover:bg-teal-800 disabled:opacity-60"
+            disabled={creating}
+            className={`w-full rounded-xl py-2.5 font-extrabold text-sm transition ${
+              creating
+                ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                : "bg-teal-700 text-white hover:bg-teal-800"
+            }`}
           >
-            {isPending ? "Adding..." : "Add Procedure"}
+            {creating
+              ? editingService
+                ? "Updating…"
+                : "Saving…"
+              : editingService
+                ? "Update Service"
+                : "Add Service"}
           </button>
 
-          {state.success ? (
-            <p className="text-emerald-700 text-xs font-extrabold text-center">
-              Procedure added successfully.
-            </p>
-          ) : null}
-
-          {state.error ? (
-            <p className="text-red-700 text-xs font-extrabold text-center">{state.error}</p>
+          {createState?.error ? (
+            <div className="text-sm font-bold text-rose-700">{createState.error}</div>
           ) : null}
         </form>
       </div>
-    </Card>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                         DENTIST SERVICE MANAGER                             */
+/* -------------------------------------------------------------------------- */
+
+function DentistServiceManager() {
+  const [dentists, setDentists] = useState<DentistLite[]>([]);
+  const [services, setServices] = useState<DentalService[]>([]);
+  const [selectedDentist, setSelectedDentist] = useState<string>("");
+
+  const [supportedIds, setSupportedIds] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = async () => {
+    setLoading(true);
+    const [dRes, sRes] = await Promise.all([
+      getDentistListAction(),
+      getAllServicesAction(),
+    ]);
+
+    if (dRes?.success) setDentists((dRes.data as DentistLite[]) || []);
+    if (sRes?.success) setServices((sRes.data as DentalService[]) || []);
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedDentist) {
+      setSupportedIds([]);
+      return;
+    }
+
+    getDentistProfile(selectedDentist).then((res: any) => {
+      if (res?.success && res.data) {
+        setSupportedIds(res.data.supportedServiceIds || []);
+      } else {
+        setSupportedIds([]);
+      }
+    });
+  }, [selectedDentist]);
+
+  const handleToggle = (serviceId: string) => {
+    setSupportedIds((prev) =>
+      prev.includes(serviceId) ? prev.filter((id) => id !== serviceId) : [...prev, serviceId],
+    );
+  };
+
+  const handleSave = async () => {
+    if (!selectedDentist) return;
+    setIsSaving(true);
+    const res = await updateDentistServicesAction(selectedDentist, supportedIds);
+    setIsSaving(false);
+
+    if (res?.success) alert("Dentist capabilities updated!");
+    else alert("Error: " + (res?.error || "Unknown error"));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="text-sm font-extrabold text-slate-900">Provider Capabilities</p>
+        <p className="text-xs text-slate-500">
+          Assign which services each dentist can perform.
+        </p>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <label className="text-xs font-extrabold text-slate-600">Select Dentist</label>
+            <select
+              className={inputBase}
+              value={selectedDentist}
+              onChange={(e) => setSelectedDentist(e.target.value)}
+            >
+              <option value="">Choose dentist…</option>
+              {dentists.map((d) => (
+                <option key={d.uid} value={d.uid}>
+                  {d.displayName || d.email || d.uid}
+                </option>
+              ))}
+            </select>
+
+            {loading ? (
+              <div className="text-sm text-slate-500 italic">Loading…</div>
+            ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-extrabold text-slate-600">Supported Services</label>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 max-h-64 overflow-y-auto">
+              {!selectedDentist ? (
+                <div className="text-sm text-slate-500 italic">
+                  Select a dentist to manage capabilities.
+                </div>
+              ) : services.length === 0 ? (
+                <div className="text-sm text-slate-500 italic">No services found.</div>
+              ) : (
+                <div className="space-y-2">
+                  {services.map((s) => (
+                    <label
+                      key={s.id}
+                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 cursor-pointer hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={supportedIds.includes(s.id)}
+                        onChange={() => handleToggle(s.id)}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-slate-900 truncate">
+                          {s.name}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          ₱{Number((s as any).price || 0).toLocaleString()}
+                          {s.isActive ? "" : " • Inactive in catalog"}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!selectedDentist || isSaving}
+              className={`w-full rounded-xl py-2.5 font-extrabold text-sm transition ${
+                !selectedDentist || isSaving
+                  ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                  : "bg-teal-700 text-white hover:bg-teal-800"
+              }`}
+            >
+              {isSaving ? "Saving…" : "Save Capabilities"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,5 @@
 "use server";
 
-
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
 
@@ -8,7 +7,7 @@ export async function getBillingReport(rangeDays: number) {
   const { fromStr, toStr } = computeDateRangeStrings(rangeDays);
 
   const q = query(
-    collection(db, "appointments"),
+    collection(db, "billing_records"),
     where("date", ">=", fromStr),
     where("date", "<=", toStr)
   );
@@ -76,6 +75,21 @@ export async function getBillingReport(rangeDays: number) {
       byStatus,
     },
   };
+}
+
+/**
+ * Backwards-compatible alias for the report panel.
+ * BillingReportPanel currently calls getBillingDetailsAction(rangeDays as string).
+ * Keeping this avoids breaking other imports while fixing the runtime error.
+ */
+export async function getBillingDetailsAction(rangeDays: string | number) {
+  const n =
+    typeof rangeDays === "number"
+      ? rangeDays
+      : Number.parseInt(String(rangeDays), 10);
+
+  const safeDays = Number.isFinite(n) && n > 0 ? n : 30;
+  return getBillingReport(safeDays);
 }
 
 function computeDateRangeStrings(rangeDays: number) {

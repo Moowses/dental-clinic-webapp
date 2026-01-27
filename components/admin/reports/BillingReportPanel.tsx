@@ -43,7 +43,7 @@ useEffect(() => {
 
 startTransition(async () => {
   try {
-    const raw = await getBillingDetailsAction(String(rangeDays));
+    const raw = await getBillingReport(rangeDays);
     const res = normalizeBillingReport(raw);
     if (!cancelled) setData(res);
   } catch (e: any) {
