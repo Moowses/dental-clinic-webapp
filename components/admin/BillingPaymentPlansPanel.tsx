@@ -160,6 +160,19 @@ function summarizeOpenProcedures(items?: BillingItem[]) {
   return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
 }
 
+// NOTE: Some deployments run over plain HTTP (non-secure context). In that case,
+// `window.crypto.randomUUID` may be unavailable and will throw "crypto.randomUUID is not a function".
+// We polyfill it on the client to keep the billing UI working.
+function fallbackRandomUUID(): string {
+  // RFC4122-ish v4 UUID (good enough for UI/client ids)
+  // eslint-disable-next-line no-bitwise
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 
 type ConfirmState =
   | null
@@ -232,6 +245,19 @@ export default function BillingPaymentPlansPanel({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+
+  // Polyfill crypto.randomUUID on HTTP deployments (non-secure context)
+  useEffect(() => {
+    try {
+      const c: any = (globalThis as any).crypto;
+      if (c && typeof c.randomUUID !== "function") {
+        c.randomUUID = fallbackRandomUUID;
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     const pid = billingId.startsWith("pid:") ? billingId.slice(4) : "";
