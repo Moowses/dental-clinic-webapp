@@ -143,10 +143,17 @@ function PatientEditForm({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ success: boolean; message?: string } | null>(null);
 
+  // Used for conditional UI (e.g., hide Women Only section when Male)
+  const [sexValue, setSexValue] = useState<string>("male");
+
   useEffect(() => {
     setLoading(true);
     Promise.all([getPatientRecord(patientId), getUserProfile(patientId)]).then(([r, p]) => {
-      if (r.success) setRecord(r.data || null);
+      if (r.success) {
+        setRecord(r.data || null);
+        const s = ((r.data as any)?.registration?.personal_information?.sex as string) || "male";
+        setSexValue(s);
+      }
       if (p.success) setProfile(p.data || null);
       setLoading(false);
     });
@@ -180,6 +187,33 @@ function PatientEditForm({
       const dateOfBirth = toStr(form.get("dateOfBirth")) || toStr(form.get("birthdate"));
       const phoneNumber = toStr(form.get("phoneNumber")) || toStr(form.get("mobileNo"));
 
+      const sex = toStr(form.get("sex")) || "male";
+
+      // Required fields (Personal Information except Middle Initial) + Contact Details (except Office No & Fax No)
+      const requiredMissing: string[] = [];
+      if (!toStr(form.get("firstName")).trim()) requiredMissing.push("First name");
+      if (!toStr(form.get("lastName")).trim()) requiredMissing.push("Last name");
+      if (!toStr(form.get("nickname")).trim()) requiredMissing.push("Nickname");
+      if (!dateOfBirth.trim()) requiredMissing.push("Birthdate");
+      if (!sex.trim()) requiredMissing.push("Sex");
+      if (!toStr(form.get("religion")).trim()) requiredMissing.push("Religion");
+      if (!toStr(form.get("nationality")).trim()) requiredMissing.push("Nationality");
+
+      if (!phoneNumber.trim()) requiredMissing.push("Mobile no.");
+      if (!toStr(form.get("homeNo")).trim()) requiredMissing.push("Home no.");
+      const emailAddr = (toStr(form.get("emailAddress")) || fallbackEmail || "").trim();
+      if (!emailAddr) requiredMissing.push("Email address");
+      if (!toStr(form.get("address")).trim()) requiredMissing.push("Home address");
+
+      if (requiredMissing.length) {
+        setStatus({
+          success: false,
+          message: `Please complete required field(s): ${requiredMissing.join(", ")}.`,
+        });
+        setSaving(false);
+        return;
+      }
+
       const structuredData: any = {
         personal_information: {
           name: {
@@ -189,7 +223,7 @@ function PatientEditForm({
           },
           nickname: toStr(form.get("nickname")),
           birthdate: dateOfBirth,
-          sex: toStr(form.get("sex")) || "male",
+          sex,
           religion: toStr(form.get("religion")),
           nationality: toStr(form.get("nationality")),
           effective_date: new Date().toISOString().split("T")[0],
@@ -201,7 +235,7 @@ function PatientEditForm({
           office_no: toStr(form.get("officeNo")),
           fax_no: toStr(form.get("faxNo")),
           // backend-test uses fallback if not provided
-          email_address: toStr(form.get("emailAddress")) || fallbackEmail || "",
+          email_address: emailAddr,
         },
         employment_information: {
           occupation: toStr(form.get("occupation")),
@@ -260,11 +294,15 @@ function PatientEditForm({
             latex: toBool(form.get("allergyLatex")),
             others: toStr(form.get("allergyOthers")),
           },
-          women_only: {
-            is_pregnant: toBool(form.get("isPregnant")),
-            is_nursing: toBool(form.get("isNursing")),
-            taking_birth_control: toBool(form.get("birthControl")),
-          },
+          // If Male, don't overwrite existing women-only fields (they won't be visible in the UI).
+          women_only:
+            (toStr(form.get("sex")) || "male") === "male"
+              ? (wom || { is_pregnant: false, is_nursing: false, taking_birth_control: false })
+              : {
+                  is_pregnant: toBool(form.get("isPregnant")),
+                  is_nursing: toBool(form.get("isNursing")),
+                  taking_birth_control: toBool(form.get("birthControl")),
+                },
           conditions_checklist: splitComma(toStr(form.get("conditions"))),
         },
         authorization: reg?.authorization || { signature_present: false },
@@ -297,10 +335,10 @@ function PatientEditForm({
           <div className={sectionCard}>
             <p className={labelSm}>Personal Information</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <input name="firstName" defaultValue={pi?.name?.first_name || ""} className={inputBase} placeholder="First name" />
-              <input name="lastName" defaultValue={pi?.name?.last_name || ""} className={inputBase} placeholder="Last name" />
+              <input name="firstName" required defaultValue={pi?.name?.first_name || ""} className={inputBase} placeholder="First name" />
+              <input name="lastName" required defaultValue={pi?.name?.last_name || ""} className={inputBase} placeholder="Last name" />
               <input name="middleInitial" defaultValue={pi?.name?.middle_initial || ""} className={inputBase} placeholder="Middle initial" />
-              <input name="nickname" defaultValue={pi?.nickname || ""} className={inputBase} placeholder="Nickname" />
+              <input name="nickname" required defaultValue={pi?.nickname || ""} className={inputBase} placeholder="Nickname" />
 
               {/* backend-test sometimes uses dateOfBirth */}
               <input
@@ -308,15 +346,16 @@ function PatientEditForm({
                 type="date"
                 defaultValue={pi?.birthdate || ""}
                 className={inputBase}
+                required
               />
 
-              <select name="sex" defaultValue={pi?.sex || "male"} className={inputBase}>
+              <select name="sex" defaultValue={pi?.sex || "male"} className={inputBase} required onChange={(e) => setSexValue(e.target.value)}>
                 <option value="male">Male</option>
                 <option value="female">Female</option>
               </select>
 
-              <input name="religion" defaultValue={pi?.religion || ""} className={inputBase} placeholder="Religion" />
-              <input name="nationality" defaultValue={pi?.nationality || ""} className={inputBase} placeholder="Nationality" />
+              <input name="religion" required defaultValue={pi?.religion || ""} className={inputBase} placeholder="Religion" />
+              <input name="nationality" required defaultValue={pi?.nationality || ""} className={inputBase} placeholder="Nationality" />
             </div>
           </div>
 
@@ -325,18 +364,18 @@ function PatientEditForm({
             <p className={labelSm}>Contact Details</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               {/* backend-test expects phoneNumber */}
-              <input name="phoneNumber" defaultValue={ci?.mobile_no || ""} className={inputBase} placeholder="Mobile no." />
-              <input name="homeNo" defaultValue={ci?.home_no || ""} className={inputBase} placeholder="Home no." />
+              <input name="phoneNumber" required defaultValue={ci?.mobile_no || ""} className={inputBase} placeholder="Mobile no." />
+              <input name="homeNo" required defaultValue={ci?.home_no || ""} className={inputBase} placeholder="Home no." />
               <input name="officeNo" defaultValue={ci?.office_no || ""} className={inputBase} placeholder="Office no." />
               <input name="faxNo" defaultValue={ci?.fax_no || ""} className={inputBase} placeholder="Fax no." />
 
               <div className="sm:col-span-2">
                 {/* not always in backend-test form, but structuredData supports it */}
-                <input name="emailAddress" defaultValue={fallbackEmail} className={inputBase} placeholder="Email address" />
+                <input name="emailAddress" required defaultValue={fallbackEmail} className={inputBase} placeholder="Email address" />
               </div>
 
               <div className="sm:col-span-2">
-                <input name="address" defaultValue={ci?.home_address || ""} className={inputBase} placeholder="Home address" />
+                <input name="address" required defaultValue={ci?.home_address || ""} className={inputBase} placeholder="Home address" />
               </div>
             </div>
           </div>
@@ -494,23 +533,25 @@ function PatientEditForm({
               <input name="allergyOthers" defaultValue={all?.others || ""} className={`${inputBase} mt-3`} placeholder="Other allergies" />
             </div>
 
-            <div className={sectionCard}>
-              <p className={labelSm}>For Women Only</p>
-              <div className="mt-3 flex flex-wrap items-center gap-6 text-sm text-slate-800">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" name="isPregnant" defaultChecked={!!wom?.is_pregnant} className={checkBox} />
-                  Pregnant
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" name="isNursing" defaultChecked={!!wom?.is_nursing} className={checkBox} />
-                  Nursing
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" name="birthControl" defaultChecked={!!wom?.taking_birth_control} className={checkBox} />
-                  Birth control
-                </label>
+            {sexValue !== "male" ? (
+              <div className={sectionCard}>
+                <p className={labelSm}>For Women Only</p>
+                <div className="mt-3 flex flex-wrap items-center gap-6 text-sm text-slate-800">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" name="isPregnant" defaultChecked={!!wom?.is_pregnant} className={checkBox} />
+                    Pregnant
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" name="isNursing" defaultChecked={!!wom?.is_nursing} className={checkBox} />
+                    Nursing
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" name="birthControl" defaultChecked={!!wom?.taking_birth_control} className={checkBox} />
+                    Birth control
+                  </label>
+                </div>
               </div>
-            </div>
+            ) : null}
 
             <div className={sectionCard}>
               <p className={labelSm}>Conditions Checklist</p>

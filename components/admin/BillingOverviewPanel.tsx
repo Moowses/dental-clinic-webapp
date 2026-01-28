@@ -68,15 +68,13 @@ function fmtDateMs(ms: number) {
 function billTotals(bill: AnyBill) {
   const items = Array.isArray(bill.items) ? bill.items : [];
   const total = items.reduce((s, it) => s + Number(it.price || 0), 0);
-  const remaining = items.reduce(
-    (s, it) =>
-      s +
-      Number(
-        it.payment?.remainingAmount ??
-          (String(it.status || "").toLowerCase() === "paid" ? 0 : it.price || 0)
-      ),
-    0
-  );
+
+  // SINGLE SOURCE OF TRUTH
+  const remaining =
+    typeof (bill as any).remainingBalance === "number"
+      ? Number((bill as any).remainingBalance)
+      : 0;
+
   return {
     total,
     remaining,

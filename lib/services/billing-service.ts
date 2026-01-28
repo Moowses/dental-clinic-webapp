@@ -217,15 +217,16 @@ export async function processPayment(
             : "unpaid";
 
       // 4) Add transaction (store itemIds for audit trail)
-      const transaction: any = {
-        id: crypto.randomUUID(),
-        amount,
-        method,
-        date: Timestamp.now(),
-        recordedBy: staffId || "system",
-        itemIds,
-        mode: "item",
-      };
+            const transaction: any = {
+          // NOTE: crypto.randomUUID() fails on non-secure origins (e.g. http://<public-ip>)
+          // while http://localhost is treated as secure. Use a Firestore-style auto id instead.
+          id: doc(collection(db, "_ids")).id,
+          amount,
+          method,
+          date: Timestamp.now(),
+          recordedBy: staffId || "system",
+          mode: "amount",
+        };
 
       await updateDoc(docRef, {
         items: updatedItems,
