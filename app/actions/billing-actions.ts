@@ -280,9 +280,10 @@ export async function createItemPaymentPlanWithDownpaymentAction(input: {
   note?: string;
 }) {
   const { auth } = await import("@/lib/firebase/firebase");
-  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
+  const user = auth.currentUser;
+  if (!user) return { success: false, error: "Not authenticated" };
 
-  const profile = await getUserProfile(auth.currentUser.uid);
+  const profile = await getUserProfile(user.uid);
   if (!profile.success || !profile.data || profile.data.role === "client") {
     return { success: false, error: "Unauthorized: Staff only" };
   }
@@ -388,7 +389,7 @@ export async function createItemPaymentPlanWithDownpaymentAction(input: {
             itemIds: [input.itemId],
             appliedTo: [{ itemId: input.itemId, amount: down }],
             note: input.note || "Downpayment",
-            recordedBy: auth.currentUser.uid,
+            recordedBy: user.uid,
             date: new Date(), 
           });
 

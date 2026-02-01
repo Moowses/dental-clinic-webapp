@@ -136,7 +136,7 @@ function AppointmentsTable({
                     onView={() => onOpenModal(appt, "details")}
                     onTransactions={() => onOpenModal(appt, "transactions")}
                     onCancel={() => onCancel(appt)}
-                    cancelDisabledReason={getCancelDisabledReason(appt)}
+                   
                   />
                 </td>
               </tr>
@@ -197,60 +197,7 @@ function AccountSettingsForm({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="text-xs font-bold text-slate-600">Phone Number</label>
-            <input
-              name="phoneNumber"
-              defaultValue={record?.phoneNumber || ""}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-              placeholder="e.g. 09xx xxx xxxx"
-            />
-          </div>
 
-          <div>
-            <label className="text-xs font-bold text-slate-600">Date of Birth</label>
-            <input
-              name="dateOfBirth"
-              type="date"
-              defaultValue={record?.dateOfBirth || ""}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-bold text-slate-600">Gender</label>
-            <select
-              name="gender"
-              defaultValue={record?.gender || "male"}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-            >
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs font-bold text-slate-600">Emergency Contact</label>
-            <input
-              name="emergencyContact"
-              defaultValue={record?.emergencyContact || ""}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-              placeholder="Name / Number"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="text-xs font-bold text-slate-600">Address</label>
-          <input
-            name="address"
-            defaultValue={record?.address || ""}
-            className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-slate-300"
-            placeholder="Full address"
-          />
-        </div>
 
         <button
           type="submit"

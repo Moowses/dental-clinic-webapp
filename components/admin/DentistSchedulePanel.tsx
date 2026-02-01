@@ -8,6 +8,8 @@ import {
   completeTreatmentAction,
 } from "@/app/actions/treatment-actions";
 
+import { Odontogram } from "react-odontogram";
+
 import type { Appointment } from "@/lib/types/appointment";
 import type { DentalProcedure } from "@/lib/types/clinic";
 import type { InventoryItem } from "@/lib/types/inventory";
@@ -125,6 +127,245 @@ function parseTimeToSortable(time?: string) {
   return "99:99";
 }
 
+function universalToFdi(universal: number) {
+  if (universal >= 1 && universal <= 8) return 19 - universal;
+  if (universal >= 9 && universal <= 16) return universal + 12;
+  if (universal >= 17 && universal <= 24) return 55 - universal;
+  if (universal >= 25 && universal <= 32) return universal + 16;
+  return null;
+}
+
+function keyToToothId(key: string) {
+  const raw = String(key || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("teeth-")) return raw;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  if (num >= 1 && num <= 32) {
+    const fdi = universalToFdi(num);
+    return fdi ? `teeth-${fdi}` : null;
+  }
+  if (num >= 11 && num <= 48) return `teeth-${num}`;
+  return null;
+}
+
+function toothToUniversal(tooth: any) {
+  return (
+    tooth?.notations?.universal ||
+    tooth?.notations?.fdi ||
+    String(tooth?.id || "").replace("teeth-", "")
+  );
+}
+
+function payloadToUniversal(payload: any) {
+  const raw = payload?.notations?.universal || payload?.notations?.fdi || "";
+  if (!raw) return "";
+  const num = Number(raw);
+  if (Number.isFinite(num)) return String(num);
+  return String(raw);
+}
+
+function DentalChartModal({
+  open,
+  chart,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  chart: Record<string, { status?: string; notes?: string }>;
+  onClose: () => void;
+  onSave: (chart: Record<string, { status?: string; notes?: string }>) => void;
+}) {
+  const [draft, setDraft] = useState<Record<string, { status?: string; notes?: string }>>({});
+  const [toothNumber, setToothNumber] = useState("");
+  const [status, setStatus] = useState("");
+  const [notes, setNotes] = useState("");
+  const [selectedTeeth, setSelectedTeeth] = useState<any[]>([]);
+  const pendingRef = React.useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraft(chart || {});
+    setToothNumber("");
+    setStatus("");
+    setNotes("");
+    setSelectedTeeth([]);
+  }, [open, chart]);
+
+  if (!open) return null;
+
+  const rows = Object.entries(draft);
+  const initialSelected = rows
+    .map(([key]) => keyToToothId(key))
+    .filter(Boolean) as string[];
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h3 className="text-lg font-extrabold text-slate-900">Dental Chart</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Add or update tooth notes</p>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-[140px_160px_1fr] gap-3">
+            <input
+              value={toothNumber}
+              onChange={(e) => setToothNumber(e.target.value)}
+              className={inputBase}
+              placeholder="Tooth #"
+            />
+            <input
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className={inputBase}
+              placeholder="Status (e.g. caries)"
+            />
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className={inputBase}
+              placeholder="Notes"
+            />
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-extrabold uppercase tracking-widest text-slate-600">
+              Adult Chart (1-32)
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Click a tooth to load its notes below, then use Add/Update and Save. Finalize Treatment to store in records.
+            </p>
+            <div className="mt-3">
+              <Odontogram
+                key={initialSelected.join(",")}
+                initialSelected={initialSelected}
+                tooltip={{
+                  content: (payload: any) => {
+                    const key = payloadToUniversal(payload);
+                    const entry = key ? draft[key] : null;
+                    return (
+                      <div>
+                        <div>Tooth: {key || "—"}</div>
+                        <div>Status: {entry?.status || "—"}</div>
+                        <div>Notes: {entry?.notes || "—"}</div>
+                      </div>
+                    );
+                  },
+                }}
+                onChange={(next: any) => {
+                  if (!next || typeof next !== "object") return;
+                  const list = Array.isArray(next) ? next : [];
+                  if (!list.length) return;
+                  const picked = list[list.length - 1];
+                  const key = String(toothToUniversal(picked) || "").trim();
+                  if (!key) return;
+                  if (pendingRef.current) {
+                    window.clearTimeout(pendingRef.current);
+                  }
+                  pendingRef.current = window.setTimeout(() => {
+                    setToothNumber(key);
+                    setStatus(draft[key]?.status || "");
+                    setNotes(draft[key]?.notes || "");
+                    setSelectedTeeth(list);
+                  }, 0);
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const key = toothNumber.trim();
+                if (!key) return;
+                const next = {
+                  ...draft,
+                  [key]: {
+                    status: status.trim() || undefined,
+                    notes: notes.trim() || undefined,
+                  },
+                };
+                setDraft(next);
+                setToothNumber("");
+                setStatus("");
+                setNotes("");
+              }}
+              className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-extrabold hover:bg-black"
+            >
+              Add / Update
+            </button>
+            <button
+              onClick={() => {
+                setToothNumber("");
+                setStatus("");
+                setNotes("");
+              }}
+              className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-extrabold hover:bg-slate-50"
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-extrabold uppercase tracking-widest text-slate-600">
+              Entries
+            </p>
+            {rows.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">No dental chart entries yet.</p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {rows.map(([tooth, entry]) => (
+                  <div
+                    key={tooth}
+                    className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-extrabold text-slate-900">Tooth {tooth}</p>
+                      <p className="text-xs text-slate-600">
+                        {entry.status || "No status"}{" "}
+                        {entry.notes ? `- ${entry.notes}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = { ...draft };
+                        delete next[tooth];
+                        setDraft(next);
+                      }}
+                      className="text-xs font-extrabold text-rose-600 hover:text-rose-700"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => {
+                onSave(draft);
+                onClose();
+              }}
+              className="w-full rounded-xl bg-emerald-700 py-3 text-white font-black hover:bg-emerald-800 transition"
+            >
+              Save Dental Chart
+            </button>
+            <button
+              onClick={onClose}
+              className="w-full text-center text-sm text-slate-500 hover:text-slate-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TreatmentModal({
   appointment,
   onClose,
@@ -154,6 +395,10 @@ function TreatmentModal({
   const [usedInv, setUsedInv] = useState<{ [id: string]: number }>({});
   const [notes, setNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [chartOpen, setChartOpen] = useState(false);
+  const [dentalChart, setDentalChart] = useState<
+    Record<string, { status?: string; notes?: string }>
+  >({});
 
   useEffect(() => {
     getTreatmentToolsAction().then((res) => {
@@ -218,6 +463,7 @@ function TreatmentModal({
     setIsSaving(true);
     const res = await completeTreatmentAction(appointment.id, {
       notes,
+      dentalChart: Object.keys(dentalChart).length ? dentalChart : undefined,
       procedures: procList.map((p) => ({
         id: p.id,
         name: p.name,
@@ -260,6 +506,23 @@ function TreatmentModal({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-extrabold text-slate-900">Dental Chart</p>
+                <p className="text-xs text-slate-500">
+                  Entries: {Object.keys(dentalChart).length}
+                </p>
+              </div>
+              <button
+                onClick={() => setChartOpen(true)}
+                className="text-xs font-extrabold text-black px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50"
+              >
+                Open Dental Chart
+              </button>
+            </div>
+          </div>
 
           {/* Two panels */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -454,6 +717,12 @@ function TreatmentModal({
           </button>
         </div>
       </div>
+      <DentalChartModal
+        open={chartOpen}
+        chart={dentalChart}
+        onClose={() => setChartOpen(false)}
+        onSave={(next) => setDentalChart(next)}
+      />
     </div>
   );
 }

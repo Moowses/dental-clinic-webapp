@@ -19,6 +19,7 @@
     "next": "16.1.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-odontogram": "^0.4.1",
     "resend": "^6.7.0",
     "zod": "^4.2.1"
   },

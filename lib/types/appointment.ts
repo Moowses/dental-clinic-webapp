@@ -15,6 +15,15 @@ export interface TreatmentRecord {
   inventoryUsed: { id: string; name: string; quantity: number }[];
   totalBill: number;
   completedAt: Timestamp;
+  dentalChart?: Record<
+    string,
+    {
+      status?: string;
+      notes?: string;
+      updatedAt?: number;
+      updatedBy?: string;
+    }
+  >;
 }
 
 export type PaymentStatus = "unpaid" | "paid" | "refunded";

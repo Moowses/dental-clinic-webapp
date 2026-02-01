@@ -3,8 +3,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { getPatientListAction, submitPatientRegistrationAction } from "@/app/actions/patient-actions";
+import {
+  getPatientDentalChartAction,
+  updatePatientDentalChartAction,
+} from "@/app/actions/appointment-admin-actions";
 import { getPatientRecord } from "@/lib/services/patient-service";
 import { getUserProfile, searchPatients } from "@/lib/services/user-service";
+import { auth } from "@/lib/firebase/firebase";
+import { useAuth } from "@/lib/hooks/useAuth";
+import { Odontogram } from "react-odontogram";
 
 import type { PatientRecord } from "@/lib/types/patient";
 import type { UserProfile } from "@/lib/types/user";
@@ -46,6 +53,385 @@ function splitComma(v: string) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function toMillis(value: any) {
+  if (!value) return 0;
+  if (typeof value?.toDate === "function") return value.toDate().getTime();
+  if (typeof value?.seconds === "number") return value.seconds * 1000;
+  const d = new Date(value);
+  const ms = d.getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+function universalToFdi(universal: number) {
+  if (universal >= 1 && universal <= 8) return 19 - universal;
+  if (universal >= 9 && universal <= 16) return universal + 12;
+  if (universal >= 17 && universal <= 24) return 55 - universal;
+  if (universal >= 25 && universal <= 32) return universal + 16;
+  return null;
+}
+
+function fdiToUniversal(fdi: number) {
+  const map: Record<number, number> = {
+    11: 8, 12: 7, 13: 6, 14: 5, 15: 4, 16: 3, 17: 2, 18: 1,
+    21: 9, 22: 10, 23: 11, 24: 12, 25: 13, 26: 14, 27: 15, 28: 16,
+    31: 24, 32: 23, 33: 22, 34: 21, 35: 20, 36: 19, 37: 18, 38: 17,
+    41: 25, 42: 26, 43: 27, 44: 28, 45: 29, 46: 30, 47: 31, 48: 32,
+  };
+  return map[fdi] ?? null;
+}
+
+function normalizeChartKeys(
+  chart: Record<string, { status?: string; notes?: string }>
+) {
+  const next: Record<string, { status?: string; notes?: string }> = {};
+  Object.entries(chart || {}).forEach(([key, value]) => {
+    const raw = String(key || "").trim();
+    if (!raw) return;
+    const num = Number(raw.replace("teeth-", ""));
+    if (!Number.isFinite(num)) {
+      next[raw] = value;
+      return;
+    }
+    if (num >= 1 && num <= 32) {
+      next[String(num)] = value;
+      return;
+    }
+    if (num >= 11 && num <= 48) {
+      const uni = fdiToUniversal(num);
+      if (uni) {
+        next[String(uni)] = value;
+        return;
+      }
+    }
+    next[raw] = value;
+  });
+  return next;
+}
+
+function keyToToothId(key: string) {
+  const raw = String(key || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("teeth-")) return raw;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  if (num >= 1 && num <= 32) {
+    const fdi = universalToFdi(num);
+    return fdi ? `teeth-${fdi}` : null;
+  }
+  if (num >= 11 && num <= 48) return `teeth-${num}`;
+  return null;
+}
+
+function toothToUniversal(tooth: any) {
+  return (
+    tooth?.notations?.universal ||
+    tooth?.notations?.fdi ||
+    String(tooth?.id || "").replace("teeth-", "")
+  );
+}
+
+function payloadToUniversal(payload: any) {
+  const raw = payload?.notations?.universal || payload?.notations?.fdi || "";
+  if (!raw) return "";
+  const num = Number(raw);
+  if (Number.isFinite(num)) return String(num);
+  return String(raw);
+}
+
+function DentalChartModal({
+  patientId,
+  patientName,
+  canEdit,
+  onClose,
+}: {
+  patientId: string;
+  patientName?: string | null;
+  canEdit: boolean;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [chart, setChart] = useState<Record<string, { status?: string; notes?: string }>>({});
+  const [meta, setMeta] = useState<{
+    date?: string;
+    time?: string;
+    completedAt?: any;
+    appointmentId?: string;
+  } | null>(null);
+  const [draft, setDraft] = useState<Record<string, { status?: string; notes?: string }>>({});
+  const [toothNumber, setToothNumber] = useState("");
+  const [status, setStatus] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [selectedTeeth, setSelectedTeeth] = useState<any[]>([]);
+  const pendingRef = React.useRef<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    const load = async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) {
+          if (!active) return;
+          setChart({});
+          setMeta(null);
+          setLoading(false);
+          return;
+        }
+
+        const res = await getPatientDentalChartAction({
+          patientId,
+          idToken: token,
+        });
+
+        if (!active) return;
+        if (!res?.success || !res.data) {
+          setChart({});
+          setMeta(null);
+          setDraft({});
+          setLoading(false);
+          return;
+        }
+
+        const nextChart = normalizeChartKeys(res.data.chart || {});
+        setChart(nextChart);
+        setDraft(nextChart);
+        setMeta(res.data.meta || null);
+        setSelectedTeeth([]);
+        setLoading(false);
+      } catch {
+        if (!active) return;
+        setChart({});
+        setMeta(null);
+        setDraft({});
+        setLoading(false);
+      }
+    };
+
+    load();
+
+    return () => {
+      active = false;
+    };
+  }, [patientId]);
+
+  const rows = Object.entries(chart || {});
+  const initialSelected = rows
+    .map(([key]) => keyToToothId(key))
+    .filter(Boolean) as string[];
+
+  const lastUpdatedLabel = (() => {
+    if (!meta) return "N/A";
+    const ts = meta.completedAt ? toMillis(meta.completedAt) : 0;
+    if (ts) return new Date(ts).toLocaleString();
+    if (meta.date) {
+      return meta.time ? `${meta.date} ${meta.time}` : meta.date;
+    }
+    return "N/A";
+  })();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-2xl rounded-2xl bg-white border border-slate-200 shadow-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h3 className="text-lg font-extrabold text-slate-900">Dental Chart</h3>
+          <p className="text-sm text-slate-500">
+            {patientName ? `${patientName} - ` : ""}Latest update: {lastUpdatedLabel}
+          </p>
+        </div>
+
+        <div className="p-5">
+          {loading ? (
+            <p className="text-sm text-slate-500">Loading...</p>
+          ) : (
+            <>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-xs font-extrabold uppercase tracking-widest text-slate-600">
+                  Adult Chart (1-32)
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {canEdit
+                    ? "Click a tooth to edit notes. Use Save Chart to persist."
+                    : "Hover a tooth to view notes. Editing is dentist-only."}
+                </p>
+                <div className="mt-3">
+                  <Odontogram
+                    key={initialSelected.join(",")}
+                    initialSelected={initialSelected}
+                    readOnly={!canEdit}
+                    tooltip={{
+                      content: (payload: any) => {
+                        const key = payloadToUniversal(payload);
+                        const entry = key ? chart[key] : null;
+                        return (
+                          <div>
+                            <div>Tooth: {key || "—"}</div>
+                            <div>Status: {entry?.status || "—"}</div>
+                            <div>Notes: {entry?.notes || "—"}</div>
+                          </div>
+                        );
+                      },
+                    }}
+                    onChange={(next: any) => {
+                      if (!canEdit) return;
+                      if (!next || typeof next !== "object") return;
+                      const list = Array.isArray(next) ? next : [];
+                      if (!list.length) return;
+                      const picked = list[list.length - 1];
+                      const key = String(toothToUniversal(picked) || "").trim();
+                      if (!key) return;
+                      if (pendingRef.current) {
+                        window.clearTimeout(pendingRef.current);
+                      }
+                      pendingRef.current = window.setTimeout(() => {
+                        setToothNumber(key);
+                        setStatus(draft[key]?.status || "");
+                        setNotes(draft[key]?.notes || "");
+                        setSelectedTeeth(list);
+                      }, 0);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {canEdit && (
+                <div className="mt-4 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-[140px_160px_1fr] gap-3">
+                    <input
+                      value={toothNumber}
+                      onChange={(e) => setToothNumber(e.target.value)}
+                      className={inputBase}
+                      placeholder="Tooth #"
+                    />
+                    <input
+                      value={status}
+                      onChange={(e) => setStatus(e.target.value)}
+                      className={inputBase}
+                      placeholder="Status (e.g. caries)"
+                    />
+                    <input
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      className={inputBase}
+                      placeholder="Notes"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const key = toothNumber.trim();
+                        if (!key) return;
+                        const next = {
+                          ...draft,
+                          [key]: {
+                            status: status.trim() || undefined,
+                            notes: notes.trim() || undefined,
+                          },
+                        };
+                        setDraft(next);
+                        setChart(next);
+                        setToothNumber("");
+                        setStatus("");
+                        setNotes("");
+                      }}
+                      className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-extrabold hover:bg-black"
+                    >
+                      Add / Update
+                    </button>
+                    <button
+                      onClick={() => {
+                        setToothNumber("");
+                        setStatus("");
+                        setNotes("");
+                      }}
+                      className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-extrabold hover:bg-slate-50"
+                    >
+                      Clear
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!meta?.appointmentId) return;
+                        const token = await auth.currentUser?.getIdToken();
+                        if (!token) return;
+                        setSaveStatus(null);
+                        setSaving(true);
+                        const now = Date.now();
+                        const patch = Object.keys(draft).reduce(
+                          (acc: Record<string, any>, key) => {
+                            acc[key] = {
+                              ...draft[key],
+                              updatedAt: now,
+                              updatedBy: auth.currentUser?.uid,
+                            };
+                            return acc;
+                          },
+                          {}
+                        );
+
+                        const res = await updatePatientDentalChartAction({
+                          appointmentId: meta.appointmentId,
+                          idToken: token,
+                          dentalChartPatch: patch,
+                        });
+
+                        setSaving(false);
+                        if (!res?.success) {
+                          setSaveStatus(res?.error || "Failed to save chart.");
+                          return;
+                        }
+                        setChart({ ...draft });
+                        setSaveStatus("Saved.");
+                      }}
+                      className="ml-auto px-4 py-2 rounded-xl bg-emerald-700 text-white text-sm font-extrabold hover:bg-emerald-800 disabled:opacity-60"
+                      disabled={saving || !meta?.appointmentId}
+                    >
+                      {saving ? "Saving..." : "Save Chart"}
+                    </button>
+                  </div>
+                  {saveStatus && (
+                    <p className="text-xs font-extrabold text-slate-600">{saveStatus}</p>
+                  )}
+                </div>
+              )}
+
+              {!canEdit && rows.length === 0 && (
+                <p className="text-sm text-slate-500 mt-3">No dental chart entries found.</p>
+              )}
+
+              {rows.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {rows.map(([tooth, entry]) => (
+                    <div
+                      key={tooth}
+                      className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-slate-900">Tooth {tooth}</p>
+                        <p className="text-xs text-slate-600">
+                          {entry.status || "No status"} {entry.notes ? `- ${entry.notes}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          <button
+            onClick={onClose}
+            className="mt-5 w-full rounded-xl bg-slate-900 text-white py-2.5 font-extrabold hover:bg-black"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PatientDetailsModal({
@@ -612,6 +998,7 @@ function PatientEditModal({
 }
 
 export default function PatientRecordsPanel() {
+  const { role } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -622,6 +1009,8 @@ export default function PatientRecordsPanel() {
 
   const [viewingUid, setViewingUid] = useState<string | null>(null);
   const [editingUid, setEditingUid] = useState<string | null>(null);
+  const [chartUid, setChartUid] = useState<string | null>(null);
+  const [chartName, setChartName] = useState<string | null>(null);
 
   useEffect(() => {
     setDirLoading(true);
@@ -741,6 +1130,15 @@ export default function PatientRecordsPanel() {
                             View
                           </button>
                           <button
+                            onClick={() => {
+                              setChartUid(u.uid);
+                              setChartName(u.displayName || u.email || null);
+                            }}
+                            className="px-3 py-2 rounded-xl bg-slate-100 font-extrabold text-xs hover:bg-slate-200"
+                          >
+                            Dental Chart
+                          </button>
+                          <button
                             onClick={() => setEditingUid(u.uid)}
                             className="px-3 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-xs hover:bg-teal-800"
                           >
@@ -771,6 +1169,17 @@ export default function PatientRecordsPanel() {
 
         {viewingUid && <PatientDetailsModal patientId={viewingUid} onClose={() => setViewingUid(null)} />}
         {editingUid && <PatientEditModal patientId={editingUid} onClose={() => setEditingUid(null)} />}
+        {chartUid && (
+          <DentalChartModal
+            patientId={chartUid}
+            patientName={chartName}
+            canEdit={role === "dentist"}
+            onClose={() => {
+              setChartUid(null);
+              setChartName(null);
+            }}
+          />
+        )}
       </div>
     </Card>
   );
