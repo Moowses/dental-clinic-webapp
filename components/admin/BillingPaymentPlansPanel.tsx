@@ -9,7 +9,7 @@ import {
   recordBillingPaymentAction,
 } from "@/app/actions/billing-actions";
 
-type InstallmentStatus = "pending" | "paid";
+type InstallmentStatus = "pending" | "paid" | "cancelled" | "overdue";
 
 type BillingInstallment = {
   id: string;

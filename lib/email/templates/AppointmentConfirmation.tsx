@@ -20,6 +20,10 @@ interface AppointmentConfirmationProps {
   appointmentId: string;
   clinicName?: string;
   confirmUrl: string;
+  isRescheduled?: boolean;
+  previousDate?: string;
+  previousTime?: string;
+  patientLabel?: string;
 }
 
 export const AppointmentConfirmationEmail = ({
@@ -30,20 +34,37 @@ export const AppointmentConfirmationEmail = ({
   appointmentId,
   clinicName = "Dental Clinic",
   confirmUrl,
+  isRescheduled = false,
+  previousDate,
+  previousTime,
+  patientLabel,
 }: AppointmentConfirmationProps) => {
   return (
     <Html>
       <Head />
-      <Preview>Confirm your appointment at {clinicName}</Preview>
+      <Preview>
+        {isRescheduled ? "Appointment Rescheduled" : "Confirm your appointment"} at {clinicName}
+      </Preview>
       <Body style={main}>
         <Container style={container}>
-          <Heading style={h1}>Appointment Confirmation</Heading>
+          <Heading style={h1}>
+            {isRescheduled ? "Appointment Rescheduled" : "Appointment Confirmation"}
+          </Heading>
           <Text style={text}>Hi {patientName},</Text>
           <Text style={text}>
-            Your appointment for <strong>{serviceName}</strong> has been scheduled.
+            {isRescheduled
+              ? "Your appointment has been rescheduled."
+              : "Your appointment has been scheduled."}{" "}
+            Appointment for <strong>{patientLabel || serviceName}</strong>.
           </Text>
           
           <Section style={detailsContainer}>
+            {isRescheduled && previousDate && previousTime ? (
+              <>
+                <Text style={detailRow}><strong>Previous Date:</strong> {previousDate}</Text>
+                <Text style={detailRow}><strong>Previous Time:</strong> {previousTime}</Text>
+              </>
+            ) : null}
             <Text style={detailRow}><strong>Date:</strong> {date}</Text>
             <Text style={detailRow}><strong>Time:</strong> {time}</Text>
             <Text style={detailRow}><strong>Reference ID:</strong> {appointmentId}</Text>

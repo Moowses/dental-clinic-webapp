@@ -7,21 +7,12 @@ import {
   getClinicSettingsAction,
   updateClinicSettingsAction,
 } from "@/app/actions/clinic-actions";
+import type { ClinicSettings } from "@/lib/types/clinic";
 
-/**
- * If your project already exports ClinicSettings type from a shared types file,
- * replace this with an import:
- *   import type { ClinicSettings } from "@/lib/types/clinic-settings";
- */
 type OperatingHoursDay = {
   isOpen: boolean;
   open: string; // "09:00"
   close: string; // "17:00"
-};
-
-type ClinicSettings = {
-  maxConcurrentPatients: number;
-  operatingHours: Record<string, OperatingHoursDay>;
 };
 
 const DAY_ORDER = [
@@ -33,6 +24,7 @@ const DAY_ORDER = [
   "saturday",
   "sunday",
 ] as const;
+type DayKey = (typeof DAY_ORDER)[number];
 
 const dayLabel = (d: string) => d.charAt(0).toUpperCase() + d.slice(1);
 
@@ -47,10 +39,15 @@ const normalizeTime = (v: any, fallback: string) => {
 };
 
 function buildDefault(): ClinicSettings {
-  const operatingHours: Record<string, OperatingHoursDay> = {};
-  for (const d of DAY_ORDER) {
-    operatingHours[d] = { isOpen: d !== "sunday", open: "09:00", close: "17:00" };
-  }
+  const operatingHours = {
+    monday: { isOpen: true, open: "09:00", close: "17:00" },
+    tuesday: { isOpen: true, open: "09:00", close: "17:00" },
+    wednesday: { isOpen: true, open: "09:00", close: "17:00" },
+    thursday: { isOpen: true, open: "09:00", close: "17:00" },
+    friday: { isOpen: true, open: "09:00", close: "17:00" },
+    saturday: { isOpen: true, open: "09:00", close: "17:00" },
+    sunday: { isOpen: false, open: "09:00", close: "17:00" },
+  };
   return { maxConcurrentPatients: 4, operatingHours };
 }
 
@@ -92,16 +89,7 @@ export default function ClinicSettings() {
               }
             }
 
-            // also keep any custom day keys that backend might store
-            for (const k of Object.keys(rawHours)) {
-              if (!merged.operatingHours[k]) {
-                merged.operatingHours[k] = {
-                  isOpen: Boolean(rawHours[k]?.isOpen),
-                  open: normalizeTime(rawHours[k]?.open, "09:00"),
-                  close: normalizeTime(rawHours[k]?.close, "17:00"),
-                };
-              }
-            }
+            // ignore unknown keys to keep strict weekday shape
 
             setSettings(merged);
           }
@@ -124,17 +112,12 @@ export default function ClinicSettings() {
     };
   }, []);
 
-  const daysToRender = useMemo(() => {
+  const daysToRender = useMemo<DayKey[]>(() => {
     if (!settings?.operatingHours) return [];
-    // Prefer known order, then append any extra keys
-    const known = DAY_ORDER.filter((d) => settings.operatingHours[d]);
-    const extras = Object.keys(settings.operatingHours).filter(
-      (k) => !DAY_ORDER.includes(k as any)
-    );
-    return [...known, ...extras];
+    return DAY_ORDER.filter((d) => settings.operatingHours[d]);
   }, [settings]);
 
-  const updateDay = (day: string, field: keyof OperatingHoursDay, value: any) => {
+  const updateDay = (day: DayKey, field: keyof OperatingHoursDay, value: any) => {
     if (!settings) return;
     setSettings({
       ...settings,

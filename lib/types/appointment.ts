@@ -15,6 +15,7 @@ export interface TreatmentRecord {
   inventoryUsed: { id: string; name: string; quantity: number }[];
   totalBill: number;
   completedAt: Timestamp;
+  imageUrls?: string[];
   dentalChart?: Record<
     string,
     {

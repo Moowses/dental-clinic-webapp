@@ -24,6 +24,7 @@ import { getAllBillingRecords } from "@/lib/services/billing-service";
 import { getInventory } from "@/lib/services/inventory-service";
 import WalkInBookingModal from "@/components/WalkInBookingModal";
 import ReportsPanel from "@/components/admin/ReportsPanel";
+import StaffAccountSettingsPanel from "@/components/admin/StaffAccountSettingsPanel";
 
 // ✅ NEW
 import ClinicSettings from "@/components/admin/ClinicSettings";
@@ -37,6 +38,7 @@ type TabKey =
   | "patients"
   | "staff"
   | "procedures"
+  | "account-settings"
   | "clinic-settings"; // ✅ NEW
 
 type ApptTab = "calendar" | "upcoming" | "unassigned";
@@ -411,18 +413,29 @@ export default function AdminDashboardPage() {
               )}
 
               {/* ✅ NEW: Clinic Settings (Admin + Front Desk only) */}
-              {canSeeClinicSettings && (
+                {canSeeClinicSettings && (
+                  <button
+                    className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
+                      tab === "clinic-settings"
+                        ? "bg-slate-900 text-white"
+                        : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                    }`}
+                    onClick={() => setTab("clinic-settings")}
+                  >
+                    Clinic Settings
+                  </button>
+                )}
+
                 <button
                   className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
-                    tab === "clinic-settings"
+                    tab === "account-settings"
                       ? "bg-slate-900 text-white"
                       : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
                   }`}
-                  onClick={() => setTab("clinic-settings")}
+                  onClick={() => setTab("account-settings")}
                 >
-                  Clinic Settings
+                  Account Settings
                 </button>
-              )}
 
               <div className="pt-3 mt-3 border-t border-slate-100">
                 <button
@@ -440,10 +453,14 @@ export default function AdminDashboardPage() {
             {/* Hero */}
             <section className="rounded-2xl overflow-hidden shadow-sm border border-slate-200">
               <div className="bg-gradient-to-r from-[#0f5f73] to-[#1aa4c7] px-6 py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-5">
-                <div className="flex items-center gap-4">
-                  <div className="h-14 w-14 rounded-2xl bg-white/20 border border-white/25 flex items-center justify-center">
-                    <span className="text-white font-extrabold text-xl">🏥</span>
-                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="h-14 w-14 rounded-2xl bg-white/20 border border-white/25 overflow-hidden flex items-center justify-center">
+                      {user?.photoURL ? (
+                        <img src={user.photoURL} alt={user.displayName || "Staff"} className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-white font-extrabold text-xl">🏥</span>
+                      )}
+                    </div>
                   <div className="text-white">
                     <p className="text-xs font-bold opacity-90">Staff Dashboard</p>
                     <p className="text-2xl font-extrabold leading-tight">
@@ -683,12 +700,18 @@ export default function AdminDashboardPage() {
               </div>
             )}
 
-            {/*Clinic Settings */}
-            {tab === "clinic-settings" && canSeeClinicSettings && (
-              <div className="space-y-6">
-                <ClinicSettings />
-              </div>
-            )}
+              {/*Clinic Settings */}
+              {tab === "clinic-settings" && canSeeClinicSettings && (
+                <div className="space-y-6">
+                  <ClinicSettings />
+                </div>
+              )}
+
+              {tab === "account-settings" && (
+                <div className="space-y-6">
+                  <StaffAccountSettingsPanel />
+                </div>
+              )}
 
             {tab === "patients" && <PatientRecordsPanel />}
             {tab === "staff" && isAdmin && <StaffHRPanel />}
@@ -703,3 +726,4 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
+

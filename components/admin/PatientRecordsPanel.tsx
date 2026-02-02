@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 
 import { getPatientListAction, submitPatientRegistrationAction } from "@/app/actions/patient-actions";
 import {
+  getPatientAttachmentsAction,
   getPatientDentalChartAction,
   updatePatientDentalChartAction,
 } from "@/app/actions/appointment-admin-actions";
@@ -188,20 +189,20 @@ function DentalChartModal({
         });
 
         if (!active) return;
-        if (!res?.success || !res.data) {
-          setChart({});
-          setMeta(null);
-          setDraft({});
-          setLoading(false);
-          return;
-        }
-
-        const nextChart = normalizeChartKeys(res.data.chart || {});
-        setChart(nextChart);
-        setDraft(nextChart);
-        setMeta(res.data.meta || null);
-        setSelectedTeeth([]);
+      if (!res?.success || !res.data) {
+        setChart({});
+        setMeta(null);
+        setDraft({});
         setLoading(false);
+        return;
+      }
+
+      const nextChart = normalizeChartKeys(res.data.chart || {});
+      setChart(nextChart);
+      setDraft(nextChart);
+      setMeta(res.data.meta || null);
+      setSelectedTeeth([]);
+      setLoading(false);
       } catch {
         if (!active) return;
         setChart({});
@@ -260,8 +261,9 @@ function DentalChartModal({
                 <div className="mt-3">
                   <Odontogram
                     key={initialSelected.join(",")}
-                    initialSelected={initialSelected}
-                    readOnly={!canEdit}
+                    defaultSelected={initialSelected}
+                    theme="light"
+                    colors={{}}
                     tooltip={{
                       content: (payload: any) => {
                         const key = payloadToUniversal(payload);
@@ -422,6 +424,7 @@ function DentalChartModal({
             </>
           )}
 
+
           <button
             onClick={onClose}
             className="mt-5 w-full rounded-xl bg-slate-900 text-white py-2.5 font-extrabold hover:bg-black"
@@ -430,6 +433,226 @@ function DentalChartModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function AttachmentsModal({
+  patientId,
+  patientName,
+  onClose,
+}: {
+  patientId: string;
+  patientName?: string | null;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [groups, setGroups] = useState<
+    Array<{
+      appointmentId: string;
+      date?: string;
+      time?: string;
+      completedAt?: any;
+      imageUrls: string[];
+      notes?: string;
+      procedures?: Array<{ name?: string; toothNumber?: string }>;
+    }>
+  >([]);
+  const [activeGroup, setActiveGroup] = useState(0);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setGroups([]);
+
+    const load = async () => {
+      const user = auth.currentUser;
+      const token = user ? await user.getIdToken() : null;
+      if (!token) {
+        if (!active) return;
+        setLoading(false);
+        return;
+      }
+
+      const res = await getPatientAttachmentsAction({
+        patientId,
+        idToken: token,
+      });
+
+      if (!active) return;
+      if (!res?.success || !res.data) {
+        setGroups([]);
+        setLoading(false);
+        return;
+      }
+
+      const list = Array.isArray(res.data.groups) ? res.data.groups : [];
+      setGroups(list);
+      setActiveGroup(0);
+      setLoading(false);
+    };
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [patientId]);
+
+  const formatLabel = (g: {
+    date?: string;
+    time?: string;
+    completedAt?: any;
+  }) => {
+    if (g.date && g.time) return `${g.date} ${g.time}`;
+    if (g.date) return g.date;
+    const ts = g.completedAt ? toMillis(g.completedAt) : 0;
+    if (ts) return new Date(ts).toLocaleString();
+    return "Unknown date";
+  };
+
+  const activeItem = groups[activeGroup];
+  const activeImages = activeItem?.imageUrls || [];
+  const activeProcedures = activeItem?.procedures || [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-4xl rounded-2xl bg-white border border-slate-200 shadow-xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-extrabold text-slate-900">Attachments</h3>
+            <p className="text-sm text-slate-500">
+              {patientName ? `${patientName} - ` : ""}Grouped by appointment
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="p-5">
+          {loading ? (
+            <p className="text-sm text-slate-500">Loading...</p>
+          ) : groups.length === 0 ? (
+            <p className="text-sm text-slate-500">No attachments found.</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {groups.map((g, idx) => (
+                  <button
+                    key={g.appointmentId}
+                    type="button"
+                    onClick={() => setActiveGroup(idx)}
+                    className={`rounded-xl border px-3 py-2 text-xs font-extrabold ${
+                      idx === activeGroup
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {formatLabel(g)}
+                  </button>
+                ))}
+              </div>
+
+              {activeItem ? (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                    <p className="text-xs font-extrabold uppercase tracking-widest text-slate-600">
+                      Appointment details
+                    </p>
+                    <p className="mt-1 text-sm text-slate-800">
+                      {formatLabel(activeItem)}
+                    </p>
+                    {activeProcedures.length > 0 && (
+                      <p className="mt-2 text-xs text-slate-600">
+                        Procedures:{" "}
+                        {activeProcedures
+                          .map((p) =>
+                            p?.toothNumber
+                              ? `${p.name} (tooth ${p.toothNumber})`
+                              : p.name
+                          )
+                          .filter(Boolean)
+                          .join(", ")}
+                      </p>
+                    )}
+                    {activeItem.notes ? (
+                      <p className="mt-2 text-xs text-slate-600">Notes: {activeItem.notes}</p>
+                    ) : null}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGalleryIndex(0);
+                      setGalleryOpen(true);
+                    }}
+                    className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-extrabold text-slate-900 hover:bg-slate-50"
+                  >
+                    View gallery ({activeImages.length})
+                  </button>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      </div>
+
+      {galleryOpen && activeImages.length > 0 && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+          <div className="relative w-full max-w-4xl rounded-2xl bg-white p-4 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setGalleryOpen(false)}
+              className="absolute right-4 top-4 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+            >
+              Close
+            </button>
+
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setGalleryIndex((prev) =>
+                    prev === 0 ? activeImages.length - 1 : prev - 1
+                  )
+                }
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+              >
+                Prev
+              </button>
+
+              <div className="flex-1">
+                <img
+                  src={activeImages[galleryIndex]}
+                  alt={`Attachment ${galleryIndex + 1}`}
+                  className="h-[60vh] w-full object-contain rounded-xl border border-slate-200 bg-slate-50"
+                />
+                <p className="mt-2 text-center text-xs text-slate-500">
+                  {galleryIndex + 1} / {activeImages.length}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setGalleryIndex((prev) =>
+                    prev === activeImages.length - 1 ? 0 : prev + 1
+                  )
+                }
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -479,15 +702,24 @@ function PatientDetailsModal({
           <p className="text-sm text-slate-500">Quick overview</p>
         </div>
 
-        <div className="p-5">
-          {loading ? (
-            <p className="text-sm text-slate-500">Loading...</p>
-          ) : (
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between gap-4">
-                <span className="text-slate-500">Name</span>
-                <span className="font-bold text-slate-900 text-right">{name}</span>
-              </div>
+          <div className="p-5">
+            {loading ? (
+              <p className="text-sm text-slate-500">Loading...</p>
+            ) : (
+              <div className="space-y-3 text-sm">
+                {profile?.photoURL ? (
+                  <div className="flex items-center justify-center">
+                    <img
+                      src={profile.photoURL}
+                      alt={name}
+                      className="h-20 w-20 rounded-2xl object-cover border border-slate-200"
+                    />
+                  </div>
+                ) : null}
+                <div className="flex justify-between gap-4">
+                  <span className="text-slate-500">Name</span>
+                  <span className="font-bold text-slate-900 text-right">{name}</span>
+                </div>
               <div className="flex justify-between gap-4">
                 <span className="text-slate-500">Phone</span>
                 <span className="font-bold text-slate-900">{phone}</span>
@@ -1011,6 +1243,8 @@ export default function PatientRecordsPanel() {
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [chartUid, setChartUid] = useState<string | null>(null);
   const [chartName, setChartName] = useState<string | null>(null);
+  const [attachmentsUid, setAttachmentsUid] = useState<string | null>(null);
+  const [attachmentsName, setAttachmentsName] = useState<string | null>(null);
 
   useEffect(() => {
     setDirLoading(true);
@@ -1095,54 +1329,61 @@ export default function PatientRecordsPanel() {
                 <tr className="text-left text-[11px] uppercase tracking-widest text-slate-500">
                   <th className="p-3">Name</th>
                   <th className="p-3 hidden md:table-cell">Email</th>
-                  <th className="p-3 hidden lg:table-cell">UID</th>
                   <th className="p-3 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody>
-                {dirLoading && !searchQuery.trim() ? (
-                  <tr>
-                    <td className="p-3 text-slate-500" colSpan={4}>
-                      Loading patient directory...
-                    </td>
-                  </tr>
-                ) : tableRows.length === 0 ? (
-                  <tr>
-                    <td className="p-3 text-slate-500" colSpan={4}>
-                      {searchQuery.trim() ? "No matching patients found." : "No patients found in directory."}
-                    </td>
-                  </tr>
-                ) : (
-                  tableRows.map((u) => (
-                    <tr key={u.uid} className="border-t border-slate-100">
-                      <td className="p-3">
-                        <div className="font-bold text-slate-900">{u.displayName || "No Name"}</div>
-                        <div className="text-xs text-slate-500 md:hidden">{u.email}</div>
+                <tbody>
+                  {dirLoading && !searchQuery.trim() ? (
+                    <tr>
+                      <td className="p-3 text-slate-500" colSpan={3}>
+                        Loading patient directory...
                       </td>
-                      <td className="p-3 hidden md:table-cell text-slate-700">{u.email}</td>
-                      <td className="p-3 hidden lg:table-cell text-[11px] text-slate-500">{u.uid}</td>
-                      <td className="p-3">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => setViewingUid(u.uid)}
-                            className="px-3 py-2 rounded-xl bg-slate-100 font-extrabold text-xs hover:bg-slate-200"
+                    </tr>
+                  ) : tableRows.length === 0 ? (
+                    <tr>
+                      <td className="p-3 text-slate-500" colSpan={3}>
+                        {searchQuery.trim() ? "No matching patients found." : "No patients found in directory."}
+                      </td>
+                    </tr>
+                  ) : (
+                    tableRows.map((u) => (
+                      <tr key={u.uid} className="border-t border-slate-100">
+                        <td className="p-3">
+                          <div className="font-bold text-slate-900">{u.displayName || "No Name"}</div>
+                          <div className="text-xs text-slate-500 md:hidden">{u.email}</div>
+                        </td>
+                        <td className="p-3 hidden md:table-cell text-slate-700">{u.email}</td>
+                        <td className="p-3">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => setViewingUid(u.uid)}
+                              className="px-3 py-2 rounded-xl bg-slate-100 font-extrabold text-xs hover:bg-slate-200"
                           >
                             View
                           </button>
-                          <button
-                            onClick={() => {
-                              setChartUid(u.uid);
-                              setChartName(u.displayName || u.email || null);
-                            }}
-                            className="px-3 py-2 rounded-xl bg-slate-100 font-extrabold text-xs hover:bg-slate-200"
-                          >
-                            Dental Chart
-                          </button>
-                          <button
-                            onClick={() => setEditingUid(u.uid)}
-                            className="px-3 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-xs hover:bg-teal-800"
-                          >
-                            Edit
+                            <button
+                              onClick={() => {
+                                setChartUid(u.uid);
+                                setChartName(u.displayName || u.email || null);
+                              }}
+                              className="px-3 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-xs hover:bg-teal-800"
+                            >
+                              Dental Chart
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAttachmentsUid(u.uid);
+                                setAttachmentsName(u.displayName || u.email || null);
+                              }}
+                              className="px-3 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-xs hover:bg-teal-800"
+                            >
+                              Attachments
+                            </button>
+                            <button
+                              onClick={() => setEditingUid(u.uid)}
+                              className="px-3 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-xs hover:bg-teal-800"
+                            >
+                              Edit
                           </button>
                         </div>
                       </td>
@@ -1177,6 +1418,16 @@ export default function PatientRecordsPanel() {
             onClose={() => {
               setChartUid(null);
               setChartName(null);
+            }}
+          />
+        )}
+        {attachmentsUid && (
+          <AttachmentsModal
+            patientId={attachmentsUid}
+            patientName={attachmentsName}
+            onClose={() => {
+              setAttachmentsUid(null);
+              setAttachmentsName(null);
             }}
           />
         )}

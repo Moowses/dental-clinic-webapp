@@ -28,6 +28,9 @@ function pickLatestDentalChart(appointments: any[]) {
     .map((a) => {
       const treatment = (a as any).treatment || {};
       const chart = treatment.dentalChart || {};
+      const imageUrls = Array.isArray(treatment.imageUrls)
+        ? treatment.imageUrls
+        : [];
       const completedAt = treatment.completedAt;
       const date = (a as any).date;
       const time = (a as any).time;
@@ -35,7 +38,15 @@ function pickLatestDentalChart(appointments: any[]) {
         toMillis(completedAt) ||
         toMillis(date && time ? `${date}T${time}:00` : date) ||
         0;
-      return { chart, score, completedAt, date, time, appointmentId: (a as any).id };
+      return {
+        chart,
+        imageUrls,
+        score,
+        completedAt,
+        date,
+        time,
+        appointmentId: (a as any).id,
+      };
     })
     .filter((c) => Object.keys(c.chart || {}).length > 0);
 
@@ -68,6 +79,41 @@ function pickLatestAppointmentMeta(appointments: any[]) {
   return candidates[0];
 }
 
+function pickAttachmentGroups(appointments: any[]) {
+  const groups = appointments
+    .filter((a) => Array.isArray((a as any)?.treatment?.imageUrls))
+    .map((a) => {
+      const treatment = (a as any).treatment || {};
+      const imageUrls = Array.isArray(treatment.imageUrls) ? treatment.imageUrls : [];
+      const completedAt = treatment.completedAt;
+      const date = (a as any).date;
+      const time = (a as any).time;
+      const score =
+        toMillis(completedAt) ||
+        toMillis(date && time ? `${date}T${time}:00` : date) ||
+        0;
+      return {
+        appointmentId: (a as any).id,
+        date,
+        time,
+        completedAt,
+        imageUrls,
+        notes: treatment.notes || "",
+        procedures: Array.isArray(treatment.procedures)
+          ? treatment.procedures.map((p: any) => ({
+              name: p?.name || "",
+              toothNumber: p?.toothNumber || "",
+            }))
+          : [],
+        score,
+      };
+    })
+    .filter((g) => g.imageUrls.length > 0);
+
+  groups.sort((a, b) => b.score - a.score);
+  return groups;
+}
+
 export async function getPatientDentalChartAction(input: {
   patientId: string;
   idToken: string;
@@ -75,7 +121,8 @@ export async function getPatientDentalChartAction(input: {
   success: boolean;
   data?: {
     chart: Record<string, DentalChartEntry>;
-    meta: { date?: string; time?: string; completedAt?: any } | null;
+    imageUrls?: string[];
+    meta: { date?: string; time?: string; completedAt?: any; appointmentId?: string } | null;
   };
   error?: string;
 }> {
@@ -98,6 +145,7 @@ export async function getPatientDentalChartAction(input: {
       success: true,
       data: {
         chart: {},
+        imageUrls: [],
         meta: latestMeta
           ? {
               date: latestMeta.date,
@@ -114,6 +162,7 @@ export async function getPatientDentalChartAction(input: {
     success: true,
     data: {
       chart: latest.chart || {},
+      imageUrls: latest.imageUrls || [],
       meta: {
         date: latest.date,
         time: latest.time,
@@ -121,6 +170,52 @@ export async function getPatientDentalChartAction(input: {
         appointmentId: latest.appointmentId,
       },
     },
+  };
+}
+
+export async function getPatientAttachmentsAction(input: {
+  patientId: string;
+  idToken: string;
+}): Promise<{
+  success: boolean;
+  data?: {
+    groups: Array<{
+      appointmentId: string;
+      date?: string;
+      time?: string;
+      completedAt?: any;
+      imageUrls: string[];
+      notes?: string;
+      procedures?: Array<{ name?: string; toothNumber?: string }>;
+    }>;
+  };
+  error?: string;
+}> {
+  if (!input?.patientId || !input?.idToken) {
+    return { success: false, error: "Missing required fields" };
+  }
+
+  const ok = await verifyStaffToken(input.idToken);
+  if (!ok) return { success: false, error: "Unauthorized" };
+
+  const res = await getAppointmentsByPatientIdAdmin(input.patientId);
+  if (!res.success || !res.data) {
+    return { success: false, error: res.error || "Failed to load appointments" };
+  }
+
+  const groups = pickAttachmentGroups(res.data).map((g) => ({
+    appointmentId: g.appointmentId,
+    date: g.date,
+    time: g.time,
+    completedAt: g.completedAt,
+    imageUrls: g.imageUrls,
+    notes: g.notes || undefined,
+    procedures: g.procedures || [],
+  }));
+
+  return {
+    success: true,
+    data: { groups },
   };
 }
 

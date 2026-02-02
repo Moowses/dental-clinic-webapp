@@ -1,4 +1,4 @@
-import type { BillingItem, BillingTransaction } from "@/lib/services/billing-service";
+import type { BillingItem, BillingTransaction } from "@/lib/types/billing";
 
 function money(n: number) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(n || 0);
@@ -19,7 +19,7 @@ export function renderBillingEmailHtml(args: {
   const totals = args.items.reduce(
     (acc, it) => {
       const price = safe(it.price);
-      const remaining = safe(it.payment?.remainingAmount);
+      const remaining = String((it as any)?.status || "").toLowerCase() === "paid" ? 0 : price;
       acc.total += price;
       acc.remaining += remaining;
       return acc;
@@ -39,9 +39,9 @@ export function renderBillingEmailHtml(args: {
 
   const lineItems = args.items
     .map((it) => {
-      const remaining = safe(it.payment?.remainingAmount);
-      const paidAmt = safe(it.payment?.paidAmount);
-      const status = it.payment?.status || "unpaid";
+      const status = String((it as any)?.status || "unpaid");
+      const remaining = status.toLowerCase() === "paid" ? 0 : safe(it.price);
+      const paidAmt = status.toLowerCase() === "paid" ? safe(it.price) : 0;
       const tooth = it.toothNumber ? ` • ${it.toothNumber}` : "";
       return `
         <tr>

@@ -29,8 +29,8 @@ import {
   Appointment,
   PaymentMethod,
 } from "@/lib/types/appointment";
-import { sendAppointmentEmail } from "@/lib/services/email-service";
-import { rescheduleAppointment } from "@/lib/services/appointment-service";
+import { sendAppointmentConfirmationEmailAction, sendRescheduleEmailsAction } from "@/app/actions/appointment-email-actions";
+import { getAppointmentById, rescheduleAppointment } from "@/lib/services/appointment-service";
 import { getBillingDetails, setupPaymentPlan } from "@/lib/services/billing-service";
 import type { BillingRecord } from "@/lib/types/billing";
 import {
@@ -110,21 +110,19 @@ export async function bookAppointmentAction(
       }
 
       // 4. Send Email Notification
-      if (userEmail) {
-        // We don't await this strictly to fail the request if email fails, 
-        // but for now let's await to ensure it works during testing.
-        await sendAppointmentEmail({
-          id: result.id,
-          date: parsedData.date,
-          time: parsedData.time,
-          serviceName: parsedData.serviceType,
-          patientName:
-            parsedData.displayName ||
-            auth.currentUser?.displayName ||
-            "Patient",
-          patientEmail: userEmail,
-        });
-      }
+        if (userEmail) {
+          await sendAppointmentConfirmationEmailAction({
+            appointmentId: result.id,
+            date: parsedData.date,
+            time: parsedData.time,
+            serviceName: parsedData.serviceType,
+            patientName:
+              parsedData.displayName ||
+              auth.currentUser?.displayName ||
+              "Patient",
+            patientEmail: userEmail,
+          });
+        }
 
       return { success: true };
     },
@@ -186,16 +184,16 @@ export async function staffBookAppointmentAction(prevState: any, data: FormData)
 
     // Email patient (if they have email)
     const patientEmail = patientProfileRes.data.email;
-    if (patientEmail) {
-      await sendAppointmentEmail({
-        id: result.id,
-        date: parsed.date,
-        time: parsed.time,
-        serviceName: parsed.serviceType,
-        patientName,
-        patientEmail,
-      });
-    }
+      if (patientEmail) {
+        await sendAppointmentConfirmationEmailAction({
+          appointmentId: result.id,
+          date: parsed.date,
+          time: parsed.time,
+          serviceName: parsed.serviceType,
+          patientName,
+          patientEmail,
+        });
+      }
 
     return { success: true };
   }, data);
@@ -376,10 +374,66 @@ export async function rescheduleAppointmentAction(
       return { success: false, error: "Missing required fields" };
     }
 
+    const currentAppt = await getAppointmentById(appointmentId);
+    if (!currentAppt.success || !currentAppt.data) {
+      return { success: false, error: currentAppt.error || "Appointment not found" };
+    }
+
+    const oldDate = (currentAppt.data as any).date;
+    const oldTime = (currentAppt.data as any).time;
+    const patientId = (currentAppt.data as any).patientId;
+    const dentistId = (currentAppt.data as any).dentistId;
+    const serviceName = String((currentAppt.data as any).serviceType || "Dental Service");
+
     const res = await rescheduleAppointment(appointmentId, newDate, newTime);
     if (!res.success) return { success: false, error: res.error || "Failed to reschedule" };
 
-    return { success: true };
+    const patientProfileRes = patientId ? await getUserProfile(patientId) : null;
+    const dentistProfileRes = dentistId ? await getUserProfile(dentistId) : null;
+
+    const apptPatientEmail = String((currentAppt.data as any)?.patientEmail || "");
+    const apptPatientName = String((currentAppt.data as any)?.patientName || "");
+
+    const patientEmail =
+      patientProfileRes?.success && patientProfileRes.data?.email
+        ? patientProfileRes.data.email
+        : apptPatientEmail;
+    const patientName =
+      patientProfileRes?.success && patientProfileRes.data
+        ? patientProfileRes.data.displayName || patientProfileRes.data.email || apptPatientName || "Patient"
+        : apptPatientName || "Patient";
+
+    const patient =
+      patientEmail
+        ? {
+            name: patientName,
+            email: patientEmail,
+          }
+        : undefined;
+
+    const dentist =
+      dentistProfileRes?.success && dentistProfileRes.data?.email
+        ? {
+            name:
+              dentistProfileRes.data.displayName ||
+              dentistProfileRes.data.email ||
+              "Dentist",
+            email: dentistProfileRes.data.email,
+          }
+        : undefined;
+
+    const emailResult = await sendRescheduleEmailsAction({
+      appointmentId,
+      serviceName,
+      newDate,
+      newTime,
+      previousDate: oldDate,
+      previousTime: oldTime,
+      patient,
+      dentist,
+    });
+
+    return { success: true, emailResult };
   } catch (e: any) {
     console.error("rescheduleAppointmentAction error:", e);
     return { success: false, error: e?.message || "Failed to reschedule" };

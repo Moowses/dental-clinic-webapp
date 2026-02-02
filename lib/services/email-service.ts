@@ -12,11 +12,20 @@ interface EmailAppointmentDetails {
   serviceName: string;
   patientName: string;
   patientEmail: string;
+  recipientName?: string;
+  recipientEmail?: string;
+  isRescheduled?: boolean;
+  previousDate?: string;
+  previousTime?: string;
+  patientLabel?: string;
+  subjectOverride?: string;
 }
 
 export async function sendAppointmentEmail(details: EmailAppointmentDetails, apiKey?: string) {
   const finalApiKey = apiKey || process.env.RESEND_API_KEY;
   const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const recipientEmail = details.recipientEmail || details.patientEmail;
+  const recipientName = details.recipientName || details.patientName;
 
   if (!finalApiKey) {
     console.warn("RESEND_API_KEY is missing. Email sending skipped.");
@@ -41,7 +50,7 @@ export async function sendAppointmentEmail(details: EmailAppointmentDetails, api
     busyStatus: 'BUSY',
     organizer: { name: 'Dental Clinic', email: 'no-reply@dentalclinic.com' },
     attendees: [
-      { name: details.patientName, email: details.patientEmail, rsvp: true }
+      { name: recipientName, email: recipientEmail, rsvp: true }
     ]
   };
 
@@ -59,20 +68,24 @@ export async function sendAppointmentEmail(details: EmailAppointmentDetails, api
     // 2. Render Email HTML
     const emailHtml = await render(
       AppointmentConfirmationEmail({
-        patientName: details.patientName,
+        patientName: recipientName,
         date: details.date,
         time: details.time,
         serviceName: details.serviceName,
         appointmentId: details.id,
         confirmUrl: confirmUrl,
+        isRescheduled: details.isRescheduled,
+        previousDate: details.previousDate,
+        previousTime: details.previousTime,
+        patientLabel: details.patientLabel,
       })
     );
 
     // 3. Send Email
     const response = await resend.emails.send({
       from: 'Dental Clinic <no-reply@j4dentalclinic.karlmosses.com>',
-      to: [details.patientEmail],
-      subject: `Appointment Confirmation - ${details.date}`,
+      to: [recipientEmail],
+      subject: details.subjectOverride || `Appointment Confirmation - ${details.date}`,
       html: emailHtml,
       attachments: [
         {

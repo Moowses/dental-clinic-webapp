@@ -236,13 +236,15 @@ function DentalChartModal({
             <p className="mt-1 text-xs text-slate-500">
               Click a tooth to load its notes below, then use Add/Update and Save. Finalize Treatment to store in records.
             </p>
-            <div className="mt-3">
-              <Odontogram
-                key={initialSelected.join(",")}
-                initialSelected={initialSelected}
-                tooltip={{
-                  content: (payload: any) => {
-                    const key = payloadToUniversal(payload);
+              <div className="mt-3">
+                <Odontogram
+                  key={initialSelected.join(",")}
+                  defaultSelected={initialSelected}
+                  theme="light"
+                  colors={{}}
+                  tooltip={{
+                    content: (payload: any) => {
+                      const key = payloadToUniversal(payload);
                     const entry = key ? draft[key] : null;
                     return (
                       <div>
@@ -399,6 +401,11 @@ function TreatmentModal({
   const [dentalChart, setDentalChart] = useState<
     Record<string, { status?: string; notes?: string }>
   >({});
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     getTreatmentToolsAction().then((res) => {
@@ -459,23 +466,32 @@ function TreatmentModal({
     return procList.reduce((sum, p) => sum + Number(p.price || 0), 0);
   }, [procList]);
 
+  const inventorySummary = useMemo(() => {
+    return (
+      tools?.inventory
+        .filter((i) => usedInv[i.id] > 0)
+        .map((i) => ({ id: i.id, name: i.name, quantity: usedInv[i.id] })) || []
+    );
+  }, [tools, usedInv]);
+
+  const dentalChartCount = useMemo(() => {
+    return Object.keys(dentalChart || {}).length;
+  }, [dentalChart]);
+
   const handleSave = async () => {
     setIsSaving(true);
     const res = await completeTreatmentAction(appointment.id, {
       notes,
       dentalChart: Object.keys(dentalChart).length ? dentalChart : undefined,
+      imageUrls: imageUrls.length ? imageUrls : undefined,
       procedures: procList.map((p) => ({
         id: p.id,
         name: p.name,
         price: Number(p.price),
         toothNumber: p.toothNumber,
-      })),
-      inventoryUsed:
-        tools?.inventory
-          .filter((i) => usedInv[i.id] > 0)
-          .map((i) => ({ id: i.id, name: i.name, quantity: usedInv[i.id] })) ||
-        [],
-    });
+        })),
+        inventoryUsed: inventorySummary,
+      });
 
     if (res.success) {
       onComplete();
@@ -484,6 +500,67 @@ function TreatmentModal({
       alert(res.error);
     }
     setIsSaving(false);
+  };
+
+  const uploadImages = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+    if (!cloudName || !uploadPreset) {
+      setUploadError("Cloudinary env vars missing.");
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+    setUploadProgress(0);
+    const nextUrls: string[] = [];
+
+    const fileList = Array.from(files);
+    const uploadSingle = (file: File, index: number, total: number) =>
+      new Promise<string | null>((resolve, reject) => {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("upload_preset", uploadPreset);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`);
+        xhr.upload.onprogress = (evt) => {
+          if (!evt.lengthComputable) return;
+          const overall = (index + evt.loaded / evt.total) / total;
+          setUploadProgress(Math.round(overall * 100));
+        };
+        xhr.onload = () => {
+          try {
+            const data = JSON.parse(xhr.responseText || "{}");
+            if (xhr.status >= 200 && xhr.status < 300 && data?.secure_url) {
+              resolve(String(data.secure_url));
+              return;
+            }
+            reject(new Error(data?.error?.message || "Upload failed"));
+          } catch {
+            reject(new Error("Upload failed"));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Upload failed"));
+        xhr.send(form);
+      });
+
+    for (let i = 0; i < fileList.length; i += 1) {
+      const file = fileList[i];
+      try {
+        const url = await uploadSingle(file, i, fileList.length);
+        if (url) nextUrls.push(url);
+      } catch (err: any) {
+        setUploadError(err?.message || "Failed to upload image.");
+      }
+    }
+
+    if (nextUrls.length) {
+      setImageUrls((prev) => [...prev, ...nextUrls]);
+    }
+    setUploading(false);
+    setUploadProgress(null);
   };
 
   return (
@@ -522,6 +599,71 @@ function TreatmentModal({
                 Open Dental Chart
               </button>
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-extrabold text-slate-900">Attachments</p>
+                <p className="text-xs text-slate-500">
+                  Add photos for this appointment (multiple allowed).
+                </p>
+              </div>
+              <label className="text-xs font-extrabold text-black px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer">
+                {uploading ? "Uploading..." : "Upload Images"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => uploadImages(e.target.files)}
+                  disabled={uploading}
+                />
+              </label>
+            </div>
+
+            {uploadError ? (
+              <p className="mt-2 text-xs font-extrabold text-rose-600">{uploadError}</p>
+            ) : null}
+
+            {uploading && (
+              <div className="mt-3">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className="h-full bg-slate-900 transition-all"
+                    style={{ width: `${uploadProgress ?? 0}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {uploadProgress ?? 0}%
+                </p>
+              </div>
+            )}
+
+            {imageUrls.length > 0 ? (
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {imageUrls.map((url, idx) => (
+                  <div key={`${url}_${idx}`} className="relative group">
+                    <img
+                      src={url}
+                      alt={`Attachment ${idx + 1}`}
+                      className="h-28 w-full object-cover rounded-xl border border-slate-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setImageUrls((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      className="absolute top-2 right-2 rounded-full bg-white/90 border border-slate-200 text-slate-700 text-xs px-2 py-1 opacity-0 group-hover:opacity-100 transition"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">No images uploaded yet.</p>
+            )}
           </div>
 
           {/* Two panels */}
@@ -700,14 +842,14 @@ function TreatmentModal({
             </div>
           </div>
 
-          {/* Bottom actions like old UI */}
-          <button
-            onClick={handleSave}
-            disabled={isSaving || procList.length === 0}
-            className="w-full rounded-xl bg-emerald-700 py-3 text-white font-black hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
-          >
-            {isSaving ? "Finalizing Treatment..." : "Finalize Treatment"}
-          </button>
+            {/* Bottom actions like old UI */}
+            <button
+              onClick={() => setConfirmOpen(true)}
+              disabled={isSaving || procList.length === 0}
+              className="w-full rounded-xl bg-emerald-700 py-3 text-white font-black hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {isSaving ? "Finalizing Treatment..." : "Finalize Treatment"}
+            </button>
 
           <button
             onClick={onClose}
@@ -717,15 +859,103 @@ function TreatmentModal({
           </button>
         </div>
       </div>
-      <DentalChartModal
-        open={chartOpen}
-        chart={dentalChart}
-        onClose={() => setChartOpen(false)}
-        onSave={(next) => setDentalChart(next)}
-      />
-    </div>
-  );
-}
+        <DentalChartModal
+          open={chartOpen}
+          chart={dentalChart}
+          onClose={() => setChartOpen(false)}
+          onSave={(next) => setDentalChart(next)}
+        />
+        {confirmOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200">
+                <h3 className="text-lg font-extrabold text-slate-900">Finalize Treatment</h3>
+                <p className="text-sm text-slate-500">
+                  Review the summary before saving.
+                </p>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-xs font-extrabold uppercase tracking-widest text-slate-600">
+                    Summary
+                  </p>
+                  <div className="mt-2 text-sm text-slate-700 space-y-1">
+                    <p>Procedures: {procList.length}</p>
+                    <p>Inventory used: {inventorySummary.length}</p>
+                    <p>Dental chart entries: {dentalChartCount}</p>
+                    <p>Attachments: {imageUrls.length}</p>
+                    <p>Total bill: ₱{estimatedTotal.toFixed(2)}</p>
+                  </div>
+                </div>
+
+                {procList.length > 0 && (
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-xs font-extrabold uppercase tracking-widest text-slate-600">
+                      Procedures
+                    </p>
+                    <div className="mt-2 space-y-1 text-sm text-slate-700">
+                      {procList.map((p, idx) => (
+                        <p key={`${p.id || "proc"}_${idx}`}>
+                          {p.name || "Unnamed"}{" "}
+                          {p.toothNumber ? `(tooth ${p.toothNumber})` : ""} - ₱
+                          {Number(p.price || 0).toFixed(2)}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {inventorySummary.length > 0 && (
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                    <p className="text-xs font-extrabold uppercase tracking-widest text-slate-600">
+                      Inventory Used
+                    </p>
+                    <div className="mt-2 space-y-1 text-sm text-slate-700">
+                      {inventorySummary.map((i) => (
+                        <p key={i.id}>
+                          {i.name} - {i.quantity}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {dentalChartCount === 0 && (
+                  <p className="text-sm text-slate-500">
+                    Dental chart is empty for this treatment.
+                  </p>
+                )}
+
+                {imageUrls.length === 0 && (
+                  <p className="text-sm text-slate-500">
+                    No attachments added for this treatment.
+                  </p>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-slate-200 flex flex-col gap-2">
+                <button
+                  onClick={async () => {
+                    setConfirmOpen(false);
+                    await handleSave();
+                  }}
+                  disabled={isSaving}
+                  className="w-full rounded-xl bg-emerald-700 py-3 text-white font-black hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {isSaving ? "Finalizing Treatment..." : "Confirm & Save"}
+                </button>
+                <button
+                  onClick={() => setConfirmOpen(false)}
+                  className="w-full text-center text-sm text-slate-500 hover:text-slate-700"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
 export default function DentistSchedulePanel() {
   const todayISO = useMemo(() => toISODate(new Date()), []);

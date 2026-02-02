@@ -20,6 +20,27 @@ import { z } from "zod";
 const APPOINTMENTS_COLLECTION = "appointments";
 const OFF_DAYS_COLLECTION = "clinic_off_days";
 
+function omitUndefined<T extends Record<string, any>>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, v]) => v !== undefined)
+  ) as T;
+}
+
+function cleanDentalChart(
+  chart?: Record<string, { status?: string; notes?: string; updatedAt?: number; updatedBy?: string }>
+) {
+  if (!chart) return undefined;
+  const cleaned: Record<string, any> = {};
+  Object.entries(chart).forEach(([tooth, entry]) => {
+    if (!entry) return;
+    const cleanedEntry = omitUndefined(entry as any);
+    if (Object.keys(cleanedEntry).length > 0) {
+      cleaned[tooth] = cleanedEntry;
+    }
+  });
+  return Object.keys(cleaned).length ? cleaned : undefined;
+}
+
 export async function recordPayment(appointmentId: string, method: PaymentMethod) {
   try {
     const docRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
@@ -242,12 +263,15 @@ export async function saveTreatmentRecord(appointmentId: string, data: Omit<Trea
     
     // Calculate total bill
     const totalBill = data.procedures.reduce((sum, p) => sum + p.price, 0);
+    const cleanedDentalChart = cleanDentalChart(data.dentalChart);
 
     const treatment: TreatmentRecord = {
       ...data,
+      dentalChart: cleanedDentalChart,
       totalBill,
       completedAt: serverTimestamp() as unknown as Timestamp,
     };
+    const cleanedTreatment = omitUndefined(treatment as any);
 
     // Decrement inventory stock
     if (data.inventoryUsed && data.inventoryUsed.length > 0) {
@@ -258,7 +282,7 @@ export async function saveTreatmentRecord(appointmentId: string, data: Omit<Trea
 
     await updateDoc(docRef, {
       status: "completed",
-      treatment
+      treatment: cleanedTreatment
     });
 
     return { success: true };
