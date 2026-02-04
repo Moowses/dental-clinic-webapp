@@ -46,6 +46,17 @@ function timeToMinutes(t: string) {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
 }
+function formatTime12h(t?: string) {
+  const value = String(t || "");
+  const parts = value.split(":");
+  if (parts.length < 2) return value || "—";
+  const hh = Number(parts[0]);
+  const mm = parts[1];
+  if (!Number.isFinite(hh)) return value || "—";
+  const hour = ((hh + 11) % 12) + 1;
+  const suffix = hh >= 12 ? "PM" : "AM";
+  return `${hour}:${mm} ${suffix}`;
+}
 
 function generateTimeSlots(start = "08:00", end = "17:00", stepMinutes = 60) {
   const [sh, sm] = start.split(":").map(Number);
@@ -352,7 +363,7 @@ export default function ReschuleBookAppointmentModal({
                 </p>
                 <p className="text-sm text-slate-700 mt-1">
                   {appointment.serviceType ? `${appointment.serviceType} • ` : ""}
-                  Current: {formatPrettyDate(appointment.date)} {appointment.time || ""}
+                  Current: {formatPrettyDate(appointment.date)} {formatTime12h(appointment.time)}
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
                   Status:{" "}
@@ -538,7 +549,7 @@ export default function ReschuleBookAppointmentModal({
                       ].join(" ")}
                       title={taken ? "Taken" : isPastTime ? "Past time" : "Available"}
                     >
-                      {slot}
+                      {formatTime12h(slot)}
                     </button>
                   );
                 })}

@@ -953,27 +953,65 @@ function PatientEditForm({
           <div className={sectionCard}>
             <p className={labelSm}>Personal Information</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <input name="firstName" required defaultValue={pi?.name?.first_name || ""} className={inputBase} placeholder="First name" />
-              <input name="lastName" required defaultValue={pi?.name?.last_name || ""} className={inputBase} placeholder="Last name" />
-              <input name="middleInitial" defaultValue={pi?.name?.middle_initial || ""} className={inputBase} placeholder="Middle initial" />
-              <input name="nickname" required defaultValue={pi?.nickname || ""} className={inputBase} placeholder="Nickname" />
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  First name<span className="text-rose-600"> *</span>
+                </label>
+                <input name="firstName" required defaultValue={pi?.name?.first_name || ""} className={inputBase} placeholder="First name" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  Last name<span className="text-rose-600"> *</span>
+                </label>
+                <input name="lastName" required defaultValue={pi?.name?.last_name || ""} className={inputBase} placeholder="Last name" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">Middle initial</label>
+                <input name="middleInitial" defaultValue={pi?.name?.middle_initial || ""} className={inputBase} placeholder="Middle initial" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  Nickname<span className="text-rose-600"> *</span>
+                </label>
+                <input name="nickname" required defaultValue={pi?.nickname || ""} className={inputBase} placeholder="Nickname" />
+              </div>
 
-              {/* backend-test sometimes uses dateOfBirth */}
-              <input
-                name="dateOfBirth"
-                type="date"
-                defaultValue={pi?.birthdate || ""}
-                className={inputBase}
-                required
-              />
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  Birthdate<span className="text-rose-600"> *</span>
+                </label>
+                {/* backend-test sometimes uses dateOfBirth */}
+                <input
+                  name="dateOfBirth"
+                  type="date"
+                  defaultValue={pi?.birthdate || ""}
+                  className={inputBase}
+                  required
+                />
+              </div>
 
-              <select name="sex" defaultValue={pi?.sex || "male"} className={inputBase} required onChange={(e) => setSexValue(e.target.value)}>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-              </select>
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  Sex<span className="text-rose-600"> *</span>
+                </label>
+                <select name="sex" defaultValue={pi?.sex || "male"} className={inputBase} required onChange={(e) => setSexValue(e.target.value)}>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+              </div>
 
-              <input name="religion" required defaultValue={pi?.religion || ""} className={inputBase} placeholder="Religion" />
-              <input name="nationality" required defaultValue={pi?.nationality || ""} className={inputBase} placeholder="Nationality" />
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  Religion<span className="text-rose-600"> *</span>
+                </label>
+                <input name="religion" required defaultValue={pi?.religion || ""} className={inputBase} placeholder="Religion" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  Nationality<span className="text-rose-600"> *</span>
+                </label>
+                <input name="nationality" required defaultValue={pi?.nationality || ""} className={inputBase} placeholder="Nationality" />
+              </div>
             </div>
           </div>
 
@@ -981,28 +1019,53 @@ function PatientEditForm({
           <div className={sectionCard}>
             <p className={labelSm}>Contact Details</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {/* backend-test expects phoneNumber */}
-              <input name="phoneNumber" required defaultValue={ci?.mobile_no || ""} className={inputBase} placeholder="Mobile no." />
-              <input name="homeNo" required defaultValue={ci?.home_no || ""} className={inputBase} placeholder="Home no." />
-              <input name="officeNo" defaultValue={ci?.office_no || ""} className={inputBase} placeholder="Office no." />
-              <input name="faxNo" defaultValue={ci?.fax_no || ""} className={inputBase} placeholder="Fax no." />
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  Mobile no.<span className="text-rose-600"> *</span>
+                </label>
+                {/* backend-test expects phoneNumber */}
+                <input name="phoneNumber" required defaultValue={ci?.mobile_no || ""} className={inputBase} placeholder="Mobile no." />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">
+                  Home no.<span className="text-rose-600"> *</span>
+                </label>
+                <input name="homeNo" required defaultValue={ci?.home_no || ""} className={inputBase} placeholder="Home no." />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">Office no.</label>
+                <input name="officeNo" defaultValue={ci?.office_no || ""} className={inputBase} placeholder="Office no." />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">Fax no.</label>
+                <input name="faxNo" defaultValue={ci?.fax_no || ""} className={inputBase} placeholder="Fax no." />
+              </div>
 
               <div className="sm:col-span-2">
+                <label className="text-xs font-bold text-slate-600">
+                  Email address<span className="text-rose-600"> *</span>
+                </label>
                 {/* not always in backend-test form, but structuredData supports it */}
                 <input name="emailAddress" required defaultValue={fallbackEmail} className={inputBase} placeholder="Email address" />
               </div>
 
               <div className="sm:col-span-2">
+                <label className="text-xs font-bold text-slate-600">
+                  Home address<span className="text-rose-600"> *</span>
+                </label>
                 <input name="address" required defaultValue={ci?.home_address || ""} className={inputBase} placeholder="Home address" />
               </div>
             </div>
           </div>
 
-          {/* Employment + Minor */}
-          <div className={sectionCard}>
-            <p className={labelSm}>Employment & Minor Details</p>
-            <div className="mt-3 grid gap-3">
-              <input name="occupation" defaultValue={ei?.occupation || ""} className={inputBase} placeholder="Occupation" />
+            {/* Employment + Minor */}
+            <div className={sectionCard}>
+              <p className={labelSm}>Employment & Minor Details</p>
+              <div className="mt-3 grid gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Occupation</label>
+                  <input name="occupation" defaultValue={ei?.occupation || ""} className={inputBase} placeholder="Occupation" />
+                </div>
 
               <div className="pt-3 border-t border-slate-100">
                 <label className="flex items-center gap-2 text-sm text-slate-800">
@@ -1010,24 +1073,42 @@ function PatientEditForm({
                   Minor (under legal age)
                 </label>
 
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <input name="guardianName" defaultValue={md?.parent_guardian_name || ""} className={inputBase} placeholder="Parent/Guardian name" />
-                  <input name="guardianOccupation" defaultValue={md?.parent_guardian_occupation || ""} className={inputBase} placeholder="Parent/Guardian occupation" />
-                </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="text-xs font-bold text-slate-600">Parent/Guardian name</label>
+                      <input name="guardianName" defaultValue={md?.parent_guardian_name || ""} className={inputBase} placeholder="Parent/Guardian name" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-600">Parent/Guardian occupation</label>
+                      <input name="guardianOccupation" defaultValue={md?.parent_guardian_occupation || ""} className={inputBase} placeholder="Parent/Guardian occupation" />
+                    </div>
+                  </div>
               </div>
             </div>
           </div>
 
-          {/* Dental + Referral */}
-          <div className={sectionCard}>
-            <p className={labelSm}>Dental & Referral</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <input name="previousDentist" defaultValue={dh?.previous_dentist || ""} className={inputBase} placeholder="Previous dentist" />
-              <input name="lastDentalVisit" defaultValue={dh?.last_dental_visit || ""} className={inputBase} placeholder="Last dental visit" />
-              <input name="referredBy" defaultValue={rd?.referred_by || ""} className={inputBase} placeholder="Referred by" />
-              <input name="consultationReason" defaultValue={rd?.reason_for_consultation || ""} className={inputBase} placeholder="Reason for consultation" />
+            {/* Dental + Referral */}
+            <div className={sectionCard}>
+              <p className={labelSm}>Dental & Referral</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Previous dentist</label>
+                  <input name="previousDentist" defaultValue={dh?.previous_dentist || ""} className={inputBase} placeholder="Previous dentist" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Last dental visit</label>
+                  <input name="lastDentalVisit" defaultValue={dh?.last_dental_visit || ""} className={inputBase} placeholder="Last dental visit" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Referred by</label>
+                  <input name="referredBy" defaultValue={rd?.referred_by || ""} className={inputBase} placeholder="Referred by" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Reason for consultation</label>
+                  <input name="consultationReason" defaultValue={rd?.reason_for_consultation || ""} className={inputBase} placeholder="Reason for consultation" />
+                </div>
+              </div>
             </div>
-          </div>
         </div>
       </div>
 
@@ -1041,15 +1122,27 @@ function PatientEditForm({
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
           {/* Left */}
           <div className="space-y-4">
-            <div className={sectionCard}>
-              <p className={labelSm}>Physician</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <input name="physicianName" defaultValue={phy?.name || ""} className={inputBase} placeholder="Physician name" />
-                <input name="physicianSpecialty" defaultValue={phy?.specialty || ""} className={inputBase} placeholder="Specialty" />
-                <input name="physicianOffice" defaultValue={phy?.office_address || ""} className={inputBase} placeholder="Office address" />
-                <input name="physicianNumber" defaultValue={phy?.office_number || ""} className={inputBase} placeholder="Office no." />
+              <div className={sectionCard}>
+                <p className={labelSm}>Physician</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">Physician name</label>
+                    <input name="physicianName" defaultValue={phy?.name || ""} className={inputBase} placeholder="Physician name" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">Specialty</label>
+                    <input name="physicianSpecialty" defaultValue={phy?.specialty || ""} className={inputBase} placeholder="Specialty" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">Office address</label>
+                    <input name="physicianOffice" defaultValue={phy?.office_address || ""} className={inputBase} placeholder="Office address" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">Office no.</label>
+                    <input name="physicianNumber" defaultValue={phy?.office_number || ""} className={inputBase} placeholder="Office no." />
+                  </div>
+                </div>
               </div>
-            </div>
 
             <div className={sectionCard}>
               <div className="flex items-center justify-between gap-3">
@@ -1114,14 +1207,23 @@ function PatientEditForm({
 
           {/* Right */}
           <div className="space-y-4">
-            <div className={sectionCard}>
-              <p className={labelSm}>Vitals</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                <input name="bloodType" defaultValue={vit?.blood_type || ""} className={inputBase} placeholder="Blood type" />
-                <input name="bloodPressure" defaultValue={vit?.blood_pressure || ""} className={inputBase} placeholder="Blood pressure" />
-                <input name="bleedingTime" defaultValue={vit?.bleeding_time || ""} className={inputBase} placeholder="Bleeding time" />
+              <div className={sectionCard}>
+                <p className={labelSm}>Vitals</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">Blood type</label>
+                    <input name="bloodType" defaultValue={vit?.blood_type || ""} className={inputBase} placeholder="Blood type" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">Blood pressure</label>
+                    <input name="bloodPressure" defaultValue={vit?.blood_pressure || ""} className={inputBase} placeholder="Blood pressure" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">Bleeding time</label>
+                    <input name="bleedingTime" defaultValue={vit?.bleeding_time || ""} className={inputBase} placeholder="Bleeding time" />
+                  </div>
+                </div>
               </div>
-            </div>
 
             <div className={sectionCard}>
               <p className={labelSm}>Allergies</p>
@@ -1148,7 +1250,10 @@ function PatientEditForm({
                 </label>
               </div>
 
-              <input name="allergyOthers" defaultValue={all?.others || ""} className={`${inputBase} mt-3`} placeholder="Other allergies" />
+              <div className="mt-3">
+                <label className="text-xs font-bold text-slate-600">Other allergies</label>
+                <input name="allergyOthers" defaultValue={all?.others || ""} className={inputBase} placeholder="Other allergies" />
+              </div>
             </div>
 
             {sexValue !== "male" ? (
@@ -1171,15 +1276,16 @@ function PatientEditForm({
               </div>
             ) : null}
 
-            <div className={sectionCard}>
-              <p className={labelSm}>Conditions Checklist</p>
-              <textarea
-                name="conditions"
-                defaultValue={(mh?.conditions_checklist || []).join(", ")}
-                className={`${inputBase} mt-3 h-28 resize-none`}
-                placeholder="Comma separated (e.g., Hypertension, Diabetes, Asthma)"
-              />
-            </div>
+              <div className={sectionCard}>
+                <p className={labelSm}>Conditions Checklist</p>
+                <label className="mt-3 text-xs font-bold text-slate-600">Conditions (comma separated)</label>
+                <textarea
+                  name="conditions"
+                  defaultValue={(mh?.conditions_checklist || []).join(", ")}
+                  className={`${inputBase} mt-2 h-28 resize-none`}
+                  placeholder="Comma separated (e.g., Hypertension, Diabetes, Asthma)"
+                />
+              </div>
           </div>
         </div>
       </div>

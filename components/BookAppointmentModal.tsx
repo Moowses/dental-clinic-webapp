@@ -34,6 +34,16 @@ function isSameDay(a: Date, b: Date) {
 function monthLabel(d: Date) {
   return d.toLocaleString(undefined, { month: "long", year: "numeric" });
 }
+function formatTime12h(t: string) {
+  const parts = String(t || "").split(":");
+  if (parts.length < 2) return t;
+  const hh = Number(parts[0]);
+  const mm = parts[1];
+  if (!Number.isFinite(hh)) return t;
+  const hour = ((hh + 11) % 12) + 1;
+  const suffix = hh >= 12 ? "PM" : "AM";
+  return `${hour}:${mm} ${suffix}`;
+}
 function buildMonthGrid(viewDate: Date) {
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -67,7 +77,7 @@ function SlotButton({
   if (disabled) {
     return (
       <button type="button" disabled className={`${base} border-slate-200 bg-slate-50 text-slate-400`}>
-        {time} <span className="ml-2 text-xs font-extrabold">(Booked)</span>
+        {formatTime12h(time)} <span className="ml-2 text-xs font-extrabold">(Booked)</span>
       </button>
     );
   }
@@ -80,7 +90,7 @@ function SlotButton({
         className={`${base} border-transparent text-white`}
         style={{ backgroundColor: BRAND }}
       >
-        {time} <span className="ml-2 text-xs font-extrabold">(Selected)</span>
+        {formatTime12h(time)} <span className="ml-2 text-xs font-extrabold">(Selected)</span>
       </button>
     );
   }
@@ -91,7 +101,7 @@ function SlotButton({
       onClick={onClick}
       className={`${base} border-slate-200 bg-white text-slate-800 hover:bg-slate-50`}
     >
-      {time}
+      {formatTime12h(time)}
     </button>
   );
 }

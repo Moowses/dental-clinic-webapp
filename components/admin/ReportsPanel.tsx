@@ -13,7 +13,7 @@ export default function ReportsPanel() {
   const tabs = useMemo(
     () => [
       { id: "appointments" as const, label: "Appointment Summary" },
-      { id: "billing" as const, label: "Billing & Payment" },
+      { id: "billing" as const, label: "Billing & Collections" },
       { id: "inventory" as const, label: "Inventory" },
     ],
     []

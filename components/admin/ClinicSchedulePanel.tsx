@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { formatTime12h } from "@/lib/utils/time";
 
 import {
   getClinicScheduleAction,
@@ -227,7 +228,8 @@ export default function ClinicSchedulePanel() {
             const timePreview = items
               .slice(0, 2)
               .map((a) => a.time)
-              .filter(Boolean);
+              .filter(Boolean)
+              .map((t) => formatTime12h(t));
 
             return (
               <button
@@ -275,9 +277,9 @@ export default function ClinicSchedulePanel() {
                   ) : (
                     <>
                       {timePreview.map((t, idx) => (
-                        <p key={idx} className="text-xs font-bold text-slate-700">
-                          {t}
-                        </p>
+                          <p key={idx} className="text-xs font-bold text-slate-700">
+                            {t}
+                          </p>
                       ))}
                       {count > 2 ? (
                         <p className="text-xs text-slate-500 font-bold">
@@ -330,10 +332,10 @@ export default function ClinicSchedulePanel() {
                     <p className="font-extrabold text-slate-900 truncate">
                       {app.patientName || "Unknown Patient"}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {app.time ? `${app.time}` : "—"}
-                      {app.serviceType ? ` • ${app.serviceType}` : ""}
-                    </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {app.time ? `${formatTime12h(app.time)}` : "—"}
+                        {app.serviceType ? ` • ${app.serviceType}` : ""}
+                      </p>
                   </div>
                   <div className="text-xs font-extrabold text-slate-600">
                     {app.status ? String(app.status).toUpperCase() : ""}

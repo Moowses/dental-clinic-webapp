@@ -25,6 +25,7 @@ import { getInventory } from "@/lib/services/inventory-service";
 import WalkInBookingModal from "@/components/WalkInBookingModal";
 import ReportsPanel from "@/components/admin/ReportsPanel";
 import StaffAccountSettingsPanel from "@/components/admin/StaffAccountSettingsPanel";
+import DashboardAnalyticsPanel from "@/components/admin/DashboardAnalyticsPanel";
 
 // ✅ NEW
 import ClinicSettings from "@/components/admin/ClinicSettings";
@@ -578,7 +579,8 @@ export default function AdminDashboardPage() {
                   </section>
                 )}
 
-                {(isDentist || isAdmin) && <DentistSchedulePanel />}
+                {isDentist && <DentistSchedulePanel />}
+                <DashboardAnalyticsPanel />
               </div>
             )}
 

@@ -107,6 +107,81 @@ export async function getBillingReport(rangeDays: number) {
   };
 }
 
+export async function getBillingReportByRange(input: { fromISO: string; toISO: string }) {
+  const { auth } = await import("@/lib/firebase/firebase");
+  if (!auth.currentUser) throw new Error("Not authenticated");
+
+  const profile = await getUserProfile(auth.currentUser.uid);
+  if (!profile.success || !profile.data) throw new Error("Unable to load user profile");
+  if (profile.data.role === "client") throw new Error("Unauthorized: Staff only");
+
+  const fromDate = new Date(input.fromISO);
+  const toDate = new Date(input.toISO);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+    throw new Error("Invalid date range");
+  }
+
+  const q = query(
+    collection(db, "billing_records"),
+    where("createdAt", ">=", Timestamp.fromDate(fromDate)),
+    where("createdAt", "<=", Timestamp.fromDate(toDate)),
+    orderBy("createdAt", "desc")
+  );
+
+  const snap = await getDocs(q);
+
+  const rows: ReportRow[] = snap.docs.map((doc) => {
+    const a: any = doc.data();
+
+    const totalAmount = Number(a.totalAmount ?? a.totalBill ?? a.total ?? 0);
+    const remainingBalance = Number(a.remainingBalance ?? a.remaining ?? 0);
+    const status = String(a.status ?? a.paymentStatus ?? "unpaid").toLowerCase();
+
+    const createdAtIso =
+      a.createdAt?.toDate?.()?.toISOString?.() ??
+      a.updatedAt?.toDate?.()?.toISOString?.() ??
+      undefined;
+
+    return {
+      id: doc.id,
+      appointmentId: String(a.appointmentId ?? doc.id),
+      patientId: a.patientId,
+      patientName: a.patientName,
+      totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+      remainingBalance: Number.isFinite(remainingBalance)
+        ? remainingBalance
+        : Number.isFinite(totalAmount)
+        ? totalAmount
+        : 0,
+      status,
+      createdAt: createdAtIso,
+    };
+  });
+
+  let totalBilled = 0;
+  let totalOutstanding = 0;
+  const byStatus: Record<string, number> = {};
+
+  for (const r of rows) {
+    totalBilled += r.totalAmount || 0;
+    totalOutstanding += r.remainingBalance || 0;
+    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
+  }
+
+  const totalCollected = Math.max(0, totalBilled - totalOutstanding);
+
+  return {
+    rows,
+    summary: {
+      totalRecords: rows.length,
+      totalBilled,
+      totalCollected,
+      totalOutstanding,
+      byStatus,
+    },
+  };
+}
+
 /**
  * Backwards-compatible alias.
  * Some older UI versions called `getBillingDetailsAction(String(rangeDays))`.

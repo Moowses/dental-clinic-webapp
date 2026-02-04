@@ -10,6 +10,7 @@ import { updatePatientRecordAction } from "@/app/actions/auth-actions";
 import { cancelAppointmentAction } from "@/app/actions/appointment-actions";
 import { updateUserDocument } from "@/lib/services/user-service";
 import { updateUserProfile } from "@/lib/services/auth-service";
+import { formatTime12h } from "@/lib/utils/time";
 
 import type { Appointment } from "@/lib/types/appointment";
 import type { PatientRecord } from "@/lib/types/patient";
@@ -144,7 +145,9 @@ function AppointmentsTable({
                 </td>
 
                 <td className="px-6 py-4 text-slate-700">{String((appt as any).date || "")}</td>
-                <td className="px-6 py-4 text-slate-700">{String((appt as any).time || "")}</td>
+                <td className="px-6 py-4 text-slate-700">
+                  {formatTime12h(String((appt as any).time || ""))}
+                </td>
 
                 <td className="px-6 py-4">
                   <StatusBadge status={String((appt as any).status || "")} />

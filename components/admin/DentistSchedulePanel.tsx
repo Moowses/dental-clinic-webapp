@@ -9,6 +9,8 @@ import {
 } from "@/app/actions/treatment-actions";
 
 import { Odontogram } from "react-odontogram";
+import { formatTime12h } from "@/lib/utils/time";
+import { getUserDisplayNameByUid } from "@/lib/services/user-service";
 
 import type { Appointment } from "@/lib/types/appointment";
 import type { DentalProcedure } from "@/lib/types/clinic";
@@ -792,7 +794,7 @@ function TreatmentModal({
 
               <div className="mt-3 space-y-2 max-h-[420px] overflow-y-auto pr-1">
                 {tools?.inventory
-                  .filter((i) => i.category === "consumable")
+                  .filter((i) => String(i.tag || "").toLowerCase() === "consumable")
                   .map((i) => (
                     <div
                       key={i.id}
@@ -962,9 +964,11 @@ export default function DentistSchedulePanel() {
   const [startDate, setStartDate] = useState(todayISO);
 
   const [rangeDays, setRangeDays] = useState<7 | 30>(7);
+    const [scheduleView, setScheduleView] = useState<"upcoming" | "completed" | "cancelled">("upcoming");
 
   const [schedule, setSchedule] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [patientNameMap, setPatientNameMap] = useState<Record<string, string>>({});
 
   const [activeTreatment, setActiveTreatment] = useState<Appointment | null>(null);
 
@@ -1011,13 +1015,65 @@ export default function DentistSchedulePanel() {
     refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    let active = true;
+    const ids = Array.from(
+      new Set(
+        schedule
+          .map((a) => String((a as any).patientId || "").trim())
+          .filter(Boolean)
+      )
+    ).filter((id) => !patientNameMap[id]);
+
+    if (ids.length === 0) return () => {};
+
+    (async () => {
+      const pairs = await Promise.all(
+        ids.map(async (id) => {
+          const name = await getUserDisplayNameByUid(id);
+          return [id, name] as const;
+        })
+      );
+      if (!active) return;
+      setPatientNameMap((prev) => {
+        const next = { ...prev };
+        for (const [id, name] of pairs) {
+          if (name) next[id] = name;
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [schedule, patientNameMap]);
+
   const subtitle = useMemo(() => {
     const label = formatRangeLabel(startDate, rangeDays);
     return `Showing: ${label}`;
   }, [startDate, rangeDays]);
 
+  const visibleSchedule = useMemo(() => {
+    const filtered = schedule.filter((app) => {
+      const status = String((app as any).status || "").toLowerCase();
+      if (scheduleView === "completed") return status === "completed";
+      if (scheduleView === "cancelled") return status === "cancelled";
+      return status !== "completed" && status !== "cancelled";
+    });
+
+    return [...filtered].sort((a, b) => {
+      const da = String((a as any).date || "");
+      const db = String((b as any).date || "");
+      if (da && db && da !== db) return da.localeCompare(db);
+      const ta = parseTimeToSortable((a as any).time);
+      const tb = parseTimeToSortable((b as any).time);
+      return ta.localeCompare(tb);
+    });
+  }, [schedule, scheduleView]);
+
   return (
-    <Card title="Upcoming Patient Schedule" subtitle={subtitle}>
+      <Card title="Patient Schedule" subtitle={subtitle}>
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <div className="flex items-center gap-3">
@@ -1049,21 +1105,60 @@ export default function DentistSchedulePanel() {
           </div>
         </div>
 
-        <button
-          onClick={refresh}
-          className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-extrabold hover:bg-slate-50"
-        >
-          Refresh
-        </button>
-      </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setScheduleView("upcoming")}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold border ${
+                scheduleView === "upcoming"
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              Upcoming
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleView("completed")}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold border ${
+                scheduleView === "completed"
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              Completed
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleView("cancelled")}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold border ${
+                scheduleView === "cancelled"
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              Cancelled
+            </button>
+            <button
+              onClick={refresh}
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-extrabold hover:bg-slate-50"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
 
       <div className="mt-4">
         {loading ? (
           <p className="text-sm text-slate-500">Loading schedule...</p>
-        ) : schedule.length === 0 ? (
+        ) : visibleSchedule.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <p className="text-sm font-extrabold text-slate-900">
-              No upcoming appointments
+              {scheduleView === "completed"
+                ? "No completed appointments"
+                : scheduleView === "cancelled"
+                  ? "No cancelled appointments"
+                  : "No upcoming appointments"}
             </p>
             <p className="mt-1 text-xs text-slate-500">
               No assigned appointments for the selected range.
@@ -1071,12 +1166,14 @@ export default function DentistSchedulePanel() {
           </div>
         ) : (
           <div className="space-y-3">
-            {schedule.map((app) => {
+            {visibleSchedule.map((app) => {
+              const patientId = String((app as any).patientId || "").trim();
               const patientLabel =
                 (app as any).patientName ||
                 (app as any).patientFullName ||
                 (app as any).patientEmail ||
-                (app as any).patientId ||
+                (patientId && patientNameMap[patientId]) ||
+                patientId ||
                 "Patient";
 
               const dateLabel = formatNiceDate(String((app as any).date || ""));
@@ -1087,28 +1184,31 @@ export default function DentistSchedulePanel() {
                   className="border border-slate-200 rounded-2xl p-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="text-base font-extrabold text-slate-900">
-                      {(app as any).time} — {(app as any).serviceType}
-                    </p>
+                      <p className="text-base font-extrabold text-slate-900">
+                        {formatTime12h((app as any).time)} — {patientLabel} — {(app as any).serviceType}
+                      </p>
 
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <StatusPill status={(app as any).status} />
                       <span className="text-xs text-slate-500">{dateLabel}</span>
                     </div>
 
-                    <p className="mt-2 text-sm text-slate-700">
-                      <span className="font-bold text-slate-900">Patient:</span>{" "}
-                      {patientLabel}
-                    </p>
+                      <p className="mt-2 text-sm text-slate-700">
+                        <span className="font-bold text-slate-900">Patient:</span>{" "}
+                        {patientLabel}
+                      </p>
                   </div>
 
-                  {(app as any).status !== "completed" ? (
-                    <button
-                      onClick={() => setActiveTreatment(app)}
-                      className="px-4 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-sm hover:bg-teal-800"
-                    >
-                      Treat
-                    </button>
+                    {(() => {
+                      const status = String((app as any).status || "").toLowerCase();
+                      return status !== "completed" && status !== "cancelled";
+                    })() ? (
+                      <button
+                        onClick={() => setActiveTreatment(app)}
+                        className="px-4 py-2 rounded-xl bg-teal-700 text-white font-extrabold text-sm hover:bg-teal-800"
+                      >
+                        Treat
+                      </button>
                   ) : (
                     <span className="text-xs font-extrabold text-slate-500">
                       Completed

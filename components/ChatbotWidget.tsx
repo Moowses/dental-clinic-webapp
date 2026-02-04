@@ -9,6 +9,7 @@ import { getAllProcedures } from "@/lib/services/clinic-service";
 import { getUserAppointments } from "@/lib/services/appointment-service";
 import { cancelAppointmentAction } from "@/app/actions/appointment-actions";
 import type { DentalProcedure } from "@/lib/types/clinic";
+import { STATIC_KNOWLEDGE } from "@/lib/clinic/static-knowledge";
 
 type UserAppointment = {
   id: string;
@@ -45,6 +46,34 @@ type Msg = {
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function normalize(text: string) {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function parseFaq(text: string) {
+  return text
+    .split("\n\n")
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const match = block.match(/^Q:\s*([\s\S]+?)\nA:\s*([\s\S]+)$/);
+      if (!match) return null;
+      return { q: match[1].trim(), a: match[2].trim() };
+    })
+    .filter(Boolean) as Array<{ q: string; a: string }>;
+}
+
+const FAQ_PAIRS = STATIC_KNOWLEDGE.flatMap((k) => parseFaq(k.text));
+
+function findFaqAnswer(message: string) {
+  if (!message) return null;
+  const normalized = normalize(message);
+  for (const faq of FAQ_PAIRS) {
+    if (normalized.includes(normalize(faq.q))) return faq.a;
+  }
+  return null;
 }
 
 export default function ChatbotWidget() {
@@ -509,6 +538,11 @@ export default function ChatbotWidget() {
 
     try {
       const lower = q.toLowerCase();
+      const faqAnswer = findFaqAnswer(q);
+      if (faqAnswer) {
+        pushAssistant(faqAnswer, { quick: defaultQuick });
+        return;
+      }
 
       // Local routing to avoid human error
       if (lower.includes("service") || lower.includes("services") || lower.includes("procedure")) {

@@ -16,9 +16,42 @@ import type { InventoryItem } from "@/lib/types/inventory";
 const inputBase =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-300";
 
+const categoryOptions = [
+  { value: "supplies", label: "Supplies" },
+  { value: "consumables", label: "Consumables" },
+  { value: "medicines", label: "Medicines" },
+  { value: "instruments", label: "Instruments" },
+  { value: "tools", label: "Tools" },
+  { value: "equipment", label: "Equipment" },
+  { value: "sterilization", label: "Sterilization" },
+  { value: "anesthetics", label: "Anesthetics" },
+  { value: "impression", label: "Impression" },
+  { value: "restorative", label: "Restorative" },
+  { value: "endodontic", label: "Endodontic" },
+  { value: "orthodontic", label: "Orthodontic" },
+  { value: "prosthodontic", label: "Prosthodontic" },
+  { value: "surgical", label: "Surgical" },
+  { value: "ppe", label: "PPE" },
+  { value: "syringes-needles", label: "Syringes & Needles" },
+  { value: "other", label: "Other" },
+];
+
+const categoryLabelMap = new Map(categoryOptions.map((opt) => [opt.value, opt.label]));
+
+function getCategoryLabel(value?: string) {
+  if (!value) return "--";
+  return categoryLabelMap.get(value) || value.replace(/-/g, " ");
+}
+
+function getTagLabel(value?: string) {
+  if (value === "consumable") return "Consumable";
+  if (value === "material") return "Material";
+  return "--";
+}
+
 function fmtMoney(n: any) {
   const v = Number(n ?? 0);
-  if (!Number.isFinite(v)) return "₱0.00";
+  if (!Number.isFinite(v)) return "PHP 0.00";
   return new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(v);
 }
 
@@ -45,7 +78,7 @@ function Modal({
             onClick={onClose}
             className="rounded-xl px-3 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-100"
           >
-            ✕
+            X
           </button>
         </div>
         <div className="p-6">{children}</div>
@@ -98,7 +131,10 @@ export default function InventoryPanel() {
       return (
         (it.name || "").toLowerCase().includes(needle) ||
         (it.category || "").toLowerCase().includes(needle) ||
-        (it.unit || "").toLowerCase().includes(needle)
+        (it.tag || "").toLowerCase().includes(needle) ||
+        (it.unit || "").toLowerCase().includes(needle) ||
+        (it.batchNumber || "").toLowerCase().includes(needle) ||
+        (it.itemCode || "").toLowerCase().includes(needle)
       );
     });
   }, [inventory, q]);
@@ -158,7 +194,7 @@ export default function InventoryPanel() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search item, category, unit…"
+              placeholder="Search item, category, unit, batch..."
               className="w-[260px] max-w-full bg-transparent text-sm outline-none"
             />
           </div>
@@ -186,11 +222,15 @@ export default function InventoryPanel() {
       <div className="p-6">
         <div className="rounded-2xl border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-[980px] w-full text-left">
+            <table className="min-w-[1440px] w-full text-left">
               <thead className="bg-slate-50">
                 <tr className="text-xs font-extrabold uppercase tracking-wide text-slate-600">
+                  <th className="px-4 py-3">Item ID</th>
                   <th className="px-4 py-3">Item</th>
                   <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Tag</th>
+                  <th className="px-4 py-3">Batch</th>
+                  <th className="px-4 py-3">Expiry</th>
                   <th className="px-4 py-3">Unit</th>
                   <th className="px-4 py-3">Stock</th>
                   <th className="px-4 py-3">Min</th>
@@ -203,27 +243,35 @@ export default function InventoryPanel() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td className="px-4 py-6 text-sm text-slate-600" colSpan={8}>
-                      Loading…
+                    <td className="px-4 py-6 text-sm text-slate-600" colSpan={12}>
+                      Loading...
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-6 text-sm text-slate-500 italic" colSpan={8}>
+                    <td className="px-4 py-6 text-sm text-slate-500 italic" colSpan={12}>
                       No inventory items found.
                     </td>
                   </tr>
                 ) : (
                   filtered.map((item) => {
                     const low = Number(item.stock ?? 0) <= Number(item.minThreshold ?? 0);
+                    const out = Number(item.stock ?? 0) <= 0;
+                    const status = out ? "Out of stock" : low ? "Low stock" : "In stock";
+                    const statusClass = out
+                      ? "bg-rose-50 text-rose-700"
+                      : low
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-emerald-50 text-emerald-700";
                     return (
                       <tr key={item.id} className="text-sm text-slate-800">
-                        <td className="px-4 py-3">
-                          <div className="font-extrabold text-slate-900">{item.name}</div>
-                          <div className="text-xs text-slate-500 mt-1">Updated: {item.updatedAt ? "—" : "—"}</div>
-                        </td>
-                        <td className="px-4 py-3">{item.category || "—"}</td>
-                        <td className="px-4 py-3">{item.unit || "—"}</td>
+                        <td className="px-4 py-3 font-extrabold text-slate-900">{item.itemCode || "--"}</td>
+                        <td className="px-4 py-3">{item.name || "--"}</td>
+                        <td className="px-4 py-3">{getCategoryLabel(item.category)}</td>
+                        <td className="px-4 py-3">{getTagLabel(item.tag)}</td>
+                        <td className="px-4 py-3">{item.batchNumber || "--"}</td>
+                        <td className="px-4 py-3">{item.expirationDate || "--"}</td>
+                        <td className="px-4 py-3">{item.unit || "--"}</td>
                         <td className="px-4 py-3">
                           <span className={low ? "font-extrabold text-rose-600" : "font-extrabold text-slate-900"}>
                             {Number(item.stock ?? 0)}
@@ -235,10 +283,10 @@ export default function InventoryPanel() {
                           <span
                             className={[
                               "inline-flex items-center rounded-full px-2 py-1 text-xs font-extrabold",
-                              item.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600",
+                              statusClass,
                             ].join(" ")}
                           >
-                            {item.isActive ? "Active" : "Inactive"}
+                            {status}
                           </span>
                         </td>
                         <td className="px-4 py-3">
@@ -247,17 +295,17 @@ export default function InventoryPanel() {
                               onClick={() => quickAdjust(item.id, -1)}
                               className="px-3 py-2 rounded-xl border border-slate-200 bg-white font-extrabold hover:bg-slate-50 disabled:opacity-60"
                               disabled={pending}
-                              title="Deduct 1"
+                              title="Stock out (deduct 1)"
                             >
-                              −1
+                              Stock out
                             </button>
                             <button
                               onClick={() => quickAdjust(item.id, 1)}
                               className="px-3 py-2 rounded-xl bg-slate-900 text-white font-extrabold hover:bg-black disabled:opacity-60"
                               disabled={pending}
-                              title="Add 1"
+                              title="Stock in (add 1)"
                             >
-                              +1
+                              Stock in
                             </button>
                             <button
                               onClick={() => setOpenEdit(item)}
@@ -270,8 +318,24 @@ export default function InventoryPanel() {
                               onClick={() => onDeactivate(item)}
                               className="px-3 py-2 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 font-extrabold hover:bg-rose-100 disabled:opacity-60"
                               disabled={pending}
+                              aria-label="Archive item"
+                              title="Archive item"
                             >
-                              Deactivate
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              >
+                                <rect x="3" y="3" width="18" height="5" rx="1" />
+                                <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+                                <path d="M10 12h4" />
+                              </svg>
                             </button>
                           </div>
                         </td>
@@ -285,7 +349,7 @@ export default function InventoryPanel() {
 
           <div className="flex items-center justify-between px-4 py-3 text-xs text-slate-500">
             <span>{filtered.length} item(s)</span>
-            {pending ? <span>Saving…</span> : <span>&nbsp;</span>}
+            {pending ? <span>Saving...</span> : <span>&nbsp;</span>}
           </div>
         </div>
       </div>
@@ -306,15 +370,38 @@ export default function InventoryPanel() {
 
               <div>
                 <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Unit</label>
-                <input name="unit" placeholder="pcs, box, ml…" className={inputBase} required />
+                <input name="unit" placeholder="box, bottle, pcs..." className={inputBase} required />
               </div>
 
               <div>
                 <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Category</label>
                 <select name="category" className={inputBase}>
+                  {categoryOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Tag</label>
+                <select name="tag" defaultValue="consumable" className={inputBase}>
                   <option value="consumable">Consumable</option>
                   <option value="material">Material</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Batch number</label>
+                <input name="batchNumber" placeholder="e.g., BATCH-2026-01" className={inputBase} />
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">
+                  Expiration date
+                </label>
+                <input name="expirationDate" type="date" className={inputBase} />
               </div>
 
               <div>
@@ -368,7 +455,7 @@ export default function InventoryPanel() {
                 disabled={addPending}
                 className="rounded-xl bg-teal-700 text-white px-4 py-2 text-sm font-extrabold hover:bg-teal-800 disabled:opacity-60"
               >
-                {addPending ? "Adding…" : "Add Item"}
+                {addPending ? "Adding..." : "Add Item"}
               </button>
             </div>
           </form>
@@ -396,10 +483,38 @@ export default function InventoryPanel() {
 
               <div>
                 <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Category</label>
-                <select name="category" defaultValue={openEdit.category || "consumable"} className={inputBase}>
+                <select name="category" defaultValue={openEdit.category || "supplies"} className={inputBase}>
+                  {categoryOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Tag</label>
+                <select name="tag" defaultValue={openEdit.tag || "consumable"} className={inputBase}>
                   <option value="consumable">Consumable</option>
                   <option value="material">Material</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Batch number</label>
+                <input name="batchNumber" defaultValue={openEdit.batchNumber || ""} className={inputBase} />
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold uppercase tracking-wide text-slate-600">
+                  Expiration date
+                </label>
+                <input
+                  name="expirationDate"
+                  type="date"
+                  defaultValue={openEdit.expirationDate || ""}
+                  className={inputBase}
+                />
               </div>
 
               <div>
@@ -466,7 +581,7 @@ export default function InventoryPanel() {
                 className="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-extrabold hover:bg-black disabled:opacity-60"
                 disabled={pending}
               >
-                {pending ? "Saving…" : "Save Changes"}
+                {pending ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </form>

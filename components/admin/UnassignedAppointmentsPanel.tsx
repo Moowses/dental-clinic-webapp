@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { formatTime12h } from "@/lib/utils/time";
 
 import {
   getClinicScheduleAction,
@@ -189,7 +190,7 @@ export default function UnassignedAppointmentsPanel() {
                         day: "2-digit",
                         year: "numeric",
                       })}
-                      {a.time ? ` • ${a.time}` : ""}
+                      {a.time ? ` • ${formatTime12h(a.time)}` : ""}
                       {a.serviceType ? ` • ${a.serviceType}` : ""}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">

@@ -26,7 +26,10 @@ export async function addInventoryItemAction(prevState: ActionState, data: FormD
     stock: Number(rawData.stock),
     minThreshold: Number(rawData.minThreshold),
     costPerUnit: Number(rawData.costPerUnit),
-    isActive: true
+    tag: rawData.tag ? String(rawData.tag) : undefined,
+    batchNumber: rawData.batchNumber ? String(rawData.batchNumber) : undefined,
+    expirationDate: rawData.expirationDate ? String(rawData.expirationDate) : undefined,
+    isActive: true,
   };
 
   const parsed = inventorySchema.safeParse(formattedData);
@@ -65,13 +68,17 @@ export async function updateInventoryItemAction(itemId: string, data: FormData):
     stock: Number(rawData.stock),
     minThreshold: Number(rawData.minThreshold),
     costPerUnit: Number(rawData.costPerUnit),
-    isActive: rawData.isActive === "true" || rawData.isActive === "on"
+    tag: rawData.tag ? String(rawData.tag) : undefined,
+    batchNumber: rawData.batchNumber ? String(rawData.batchNumber) : undefined,
+    expirationDate: rawData.expirationDate ? String(rawData.expirationDate) : undefined,
+    isActive: rawData.isActive === "true" || rawData.isActive === "on",
   };
 
   const parsed = inventorySchema.safeParse(formattedData);
   if (!parsed.success) return { success: false, error: parsed.error.issues[0].message };
 
-  return await updateInventoryItem(itemId, parsed.data);
+  const { itemCode, ...safe } = parsed.data as any;
+  return await updateInventoryItem(itemId, safe);
 }
 
 export async function deleteInventoryItemAction(itemId: string): Promise<ActionState> {
@@ -108,14 +115,18 @@ export async function getInventoryReport() {
 
     return {
       id: doc.id,
+      itemCode: data.itemCode,
       name: data.name ?? "Unnamed Item",
       sku: data.sku,
       category: data.category,
+      tag: data.tag,
       qtyOnHand: Number.isFinite(qtyOnHand) ? qtyOnHand : 0,
       reorderLevel: Number.isFinite(reorderLevel as number)
         ? (reorderLevel as number)
         : undefined,
       unit: data.unit,
+      batchNumber: data.batchNumber,
+      expirationDate: data.expirationDate,
       updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() ?? data.updatedAt,
     };
   });

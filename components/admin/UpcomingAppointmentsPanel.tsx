@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { formatTime12h } from "@/lib/utils/time";
 import {
   getClinicScheduleAction,
   assignDentistAction,
@@ -278,7 +279,7 @@ const [reschedAppt, setReschedAppt] = useState<AppointmentWithPatient | null>(nu
                           day: "2-digit",
                           year: "numeric",
                         })}
-                        {a.time ? ` • ${a.time}` : ""}
+                        {a.time ? ` • ${formatTime12h(a.time)}` : ""}
                         {a.serviceType ? ` • ${a.serviceType}` : ""}
                       </p>
                     </div>

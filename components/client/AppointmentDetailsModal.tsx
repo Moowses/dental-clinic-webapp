@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatTime12h } from "@/lib/utils/time";
 import type { Appointment } from "@/lib/types/appointment";
 import type { DentistProfile } from "@/lib/services/dentist-profile-service";
 
@@ -93,7 +94,7 @@ export default function AppointmentDetailsModal({
           <div>
             <p className="text-lg font-extrabold text-slate-900">Appointment</p>
             <p className="text-sm text-slate-500">
-              {(appointment as any).date} • {(appointment as any).time}
+              {(appointment as any).date} • {formatTime12h((appointment as any).time)}
             </p>
           </div>
 

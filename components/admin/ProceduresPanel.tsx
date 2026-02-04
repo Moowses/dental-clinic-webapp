@@ -33,6 +33,7 @@ type InventoryItemLite = {
   id: string;
   name: string;
   category?: string;
+  tag?: string;
 };
 
 type DentistLite = {
@@ -161,7 +162,7 @@ function ProceduresBlueprintsSection() {
     const res = await getInventory();
     if (res?.success) {
       const consumables = (res.data || []).filter(
-        (i: any) => i?.category === "consumable",
+        (i: any) => String(i?.tag || "").toLowerCase() === "consumable",
       );
       setInventory(consumables);
     }

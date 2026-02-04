@@ -513,6 +513,10 @@ export async function getAppointmentsInRange({
       ? new Date(`${dateStr}T${timeStr}:00`)
       : null;
 
+    const proceduresCount = Array.isArray(data?.treatment?.procedures)
+      ? data.treatment.procedures.length
+      : 0;
+
     return {
       id: doc.id,
       startAt: startAtDate && !Number.isNaN(startAtDate.getTime())
@@ -520,6 +524,8 @@ export async function getAppointmentsInRange({
         : new Date().toISOString(), // fallback
       status: data.status ?? "unknown",
       paymentStatus: data.paymentStatus ?? "unknown",
+      dentistId: data.dentistId ?? null,
+      proceduresCount,
     };
   });
 

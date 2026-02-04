@@ -3,17 +3,18 @@
 import { useEffect, useState, useTransition } from "react";
 import ReportShell from "./ReportShell";
 
-// TODO: update import to your actual action
 import { getInventoryReport } from "@/app/actions/inventory-actions";
 
 type InventoryRow = {
   id: string;
   name: string;
-  sku?: string;
+  itemCode?: string;
   category?: string;
+  tag?: string;
   qtyOnHand: number;
   reorderLevel?: number;
   unit?: string;
+  expirationDate?: string;
   updatedAt?: string;
 };
 
@@ -27,11 +28,17 @@ type InventoryReportResponse = {
 };
 
 export default function InventoryReportPanel() {
+  const [ready, setReady] = useState(false);
   const [data, setData] = useState<InventoryReportResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  function onPrint() {
+    window.open("/admin-dashboard/reports/print?type=inventory", "_blank", "noopener,noreferrer");
+  }
+
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     setErr(null);
 
@@ -40,6 +47,7 @@ export default function InventoryReportPanel() {
         const res = (await getInventoryReport()) as InventoryReportResponse;
         if (!cancelled) setData(res);
       } catch (e: any) {
+        console.error("InventoryReportPanel load error:", e);
         if (!cancelled) setErr(e?.message ?? "Failed to load inventory report.");
       }
     });
@@ -47,7 +55,7 @@ export default function InventoryReportPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [ready]);
 
   if (err) {
     return (
@@ -61,11 +69,27 @@ export default function InventoryReportPanel() {
     );
   }
 
+  if (!ready) {
+    return (
+      <ReportShell reportName="Inventory Report" subtitle="Current stock overview">
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-sm text-slate-600">Click generate to load the report.</p>
+          <button
+            onClick={() => setReady(true)}
+            className="rounded-full px-5 py-2 text-sm font-extrabold bg-slate-900 text-white hover:bg-slate-800"
+          >
+            Generate Report
+          </button>
+        </div>
+      </ReportShell>
+    );
+  }
+
   const empty =
     !data || data.rows.length === 0
       ? {
-          title: pending ? "Loading report…" : "No inventory items found",
-          description: pending ? "Please wait…" : "Add items to inventory to generate this report.",
+          title: pending ? "Loading report..." : "No inventory items found",
+          description: pending ? "Please wait..." : "Add items to inventory to generate this report.",
         }
       : undefined;
 
@@ -73,6 +97,19 @@ export default function InventoryReportPanel() {
     <ReportShell reportName="Inventory Report" subtitle="Current stock overview" empty={empty}>
       {!data ? null : (
         <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              onClick={onPrint}
+              className="rounded-full px-4 py-2 text-sm font-extrabold bg-slate-900 text-white hover:bg-slate-800"
+            >
+              Print
+            </button>
+          </div>
+          {pending ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              Generating report...
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <Summary label="Total Items" value={data.summary.totalItems} />
             <Summary label="Low Stock" value={data.summary.lowStockCount} />
@@ -83,12 +120,13 @@ export default function InventoryReportPanel() {
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50">
                 <tr className="text-left text-slate-600">
-                  <th className="px-4 py-3 font-bold">Item</th>
+                  <th className="px-4 py-3 font-bold">Item ID</th>
+                  <th className="px-4 py-3 font-bold">Item Name</th>
                   <th className="px-4 py-3 font-bold">Category</th>
-                  <th className="px-4 py-3 font-bold">SKU</th>
-                  <th className="px-4 py-3 font-bold">On Hand</th>
-                  <th className="px-4 py-3 font-bold">Reorder Level</th>
-                  <th className="px-4 py-3 font-bold">Last Updated</th>
+                  <th className="px-4 py-3 font-bold">Stock Qty</th>
+                  <th className="px-4 py-3 font-bold">Unit</th>
+                  <th className="px-4 py-3 font-bold">Status</th>
+                  <th className="px-4 py-3 font-bold">Expiry Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -96,28 +134,30 @@ export default function InventoryReportPanel() {
                   const low =
                     typeof r.reorderLevel === "number" && r.qtyOnHand <= r.reorderLevel;
                   const oos = r.qtyOnHand <= 0;
+                  const status = oos ? "Out of stock" : low ? "Low stock" : "In stock";
 
                   return (
                     <tr key={r.id} className="border-t border-slate-200">
-                      <td className="px-4 py-3 font-semibold text-slate-900">
-                        {r.name}
-                        {(low || oos) && (
-                          <span className="ml-2 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700">
-                            {oos ? "OUT" : "LOW"}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{r.category ?? "—"}</td>
-                      <td className="px-4 py-3 text-slate-700">{r.sku ?? "—"}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{r.itemCode ?? "--"}</td>
+                      <td className="px-4 py-3 text-slate-700">{r.name}</td>
+                      <td className="px-4 py-3 text-slate-700">{r.category ?? "--"}</td>
+                      <td className="px-4 py-3 text-slate-700">{r.qtyOnHand}</td>
+                      <td className="px-4 py-3 text-slate-700">{r.unit ?? "--"}</td>
                       <td className="px-4 py-3 text-slate-700">
-                        {r.qtyOnHand} {r.unit ?? ""}
+                        <span
+                          className={[
+                            "inline-flex items-center rounded-full px-2 py-1 text-xs font-bold",
+                            oos
+                              ? "bg-rose-50 text-rose-700"
+                              : low
+                              ? "bg-amber-50 text-amber-700"
+                              : "bg-emerald-50 text-emerald-700",
+                          ].join(" ")}
+                        >
+                          {status}
+                        </span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {typeof r.reorderLevel === "number" ? r.reorderLevel : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {formatDate(r.updatedAt)}
-                      </td>
+                      <td className="px-4 py-3 text-slate-700">{r.expirationDate ?? "--"}</td>
                     </tr>
                   );
                 })}
@@ -137,11 +177,4 @@ function Summary({ label, value }: { label: string; value: any }) {
       <p className="mt-1 text-lg font-extrabold text-slate-900">{value}</p>
     </div>
   );
-}
-
-function formatDate(iso?: string) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString();
 }

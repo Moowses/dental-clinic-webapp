@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import ReportShell from "./ReportShell";
-import { getBillingReport } from "@/app/actions/billing-report-actions";
+import { getBillingReport, getBillingReportByRange } from "@/app/actions/billing-report-actions";
 
 import { db } from "@/lib/firebase/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { getUserDisplayNameByUid } from "@/lib/services/user-service";
 
 type BillingRow = {
   id: string;
@@ -68,6 +69,17 @@ type TxnRow = {
   status: string;
 };
 
+type BillingInsights = {
+  collectedTotal: number;
+  collectedByMethod: Record<string, number>;
+  collectedByType: { procedure: number; installment: number };
+  topProcedures: Array<{ name: string; amount: number }>;
+  openInstallments: number;
+  overdueInstallments: number;
+  dentistIncome: Array<{ dentistId: string; dentistName: string; collected: number; procedures: number }>;
+  totalProcedures: number;
+};
+
 function toDate(input: any): Date | null {
   try {
     if (!input) return null;
@@ -82,15 +94,15 @@ function toDate(input: any): Date | null {
 }
 
 function formatDate(iso?: string) {
-  if (!iso) return "—";
+  if (!iso) return "";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }
 
 function money(n: number) {
   const num = Number(n || 0);
-  return `₱${num.toLocaleString(undefined, {
+  return `${num.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -140,8 +152,8 @@ function looksLikeUid(s: string) {
 }
 
 function shortUid(uid: string) {
-  if (!uid) return "—";
-  return uid.length > 12 ? `${uid.slice(0, 6)}…${uid.slice(-4)}` : uid;
+  if (!uid) return "";
+  return uid.length > 12 ? `${uid.slice(0, 6)}${uid.slice(-4)}` : uid;
 }
 
 async function resolvePatientLabel(
@@ -150,7 +162,7 @@ async function resolvePatientLabel(
   cache?: Map<string, string>
 ) {
   if (patientName && patientName.trim() && !looksLikeUid(patientName)) return patientName;
-  if (!patientId) return "—";
+  if (!patientId) return "";
   if (cache?.has(patientId)) return cache.get(patientId)!;
 
   try {
@@ -179,9 +191,14 @@ async function resolvePatientLabel(
 }
 
 export default function BillingReportPanel() {
+  const [ready, setReady] = useState(false);
   const [rangeDays, setRangeDays] = useState<7 | 30 | 90>(30);
+  const [customRange, setCustomRange] = useState<{ from: string; to: string } | null>(null);
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDateValue, setToDateValue] = useState<string>("");
   const [data, setData] = useState<BillingReportResponse | null>(null);
   const [txns, setTxns] = useState<TxnRow[]>([]);
+  const [insights, setInsights] = useState<BillingInsights | null>(null);
   const [view, setView] = useState<"transactions" | "bills">("transactions");
 
   const [err, setErr] = useState<string | null>(null);
@@ -189,33 +206,103 @@ export default function BillingReportPanel() {
   const [pending, startTransition] = useTransition();
   const [pendingDetails, startDetailsTransition] = useTransition();
 
-  const subtitle = useMemo(() => `Last ${rangeDays} days`, [rangeDays]);
+  const subtitle = useMemo(() => {
+    if (customRange?.from && customRange?.to) {
+      return `${customRange.from} to ${customRange.to}`;
+    }
+    return `Last ${rangeDays} days`;
+  }, [rangeDays, customRange]);
 
-  function onPrint() {
-    window.print();
+
+  const aging = useMemo(() => {
+    const buckets = { "0-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
+    if (!data?.rows?.length) return buckets;
+    const now = Date.now();
+    for (const r of data.rows) {
+      const remaining = Number(r.remainingBalance || 0);
+      if (remaining <= 0) continue;
+      const created = r.createdAt ? new Date(r.createdAt).getTime() : NaN;
+      if (!Number.isFinite(created)) {
+        buckets["90+"] += remaining;
+        continue;
+      }
+      const days = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+      if (days <= 30) buckets["0-30"] += remaining;
+      else if (days <= 60) buckets["31-60"] += remaining;
+      else if (days <= 90) buckets["61-90"] += remaining;
+      else buckets["90+"] += remaining;
+    }
+    return buckets;
+  }, [data]);
+
+  const topOutstanding = useMemo(() => {
+    if (!data?.rows?.length) return [];
+    const map = new Map<string, { name: string; amount: number }>();
+    for (const r of data.rows) {
+      const remaining = Number(r.remainingBalance || 0);
+      if (remaining <= 0) continue;
+      const key = r.patientId || r.patientName || r.id;
+      const name = r.patientName || r.patientId || "Unknown";
+      const prev = map.get(key);
+      if (!prev) map.set(key, { name, amount: remaining });
+      else prev.amount += remaining;
+    }
+    return Array.from(map.values()).sort((a, b) => b.amount - a.amount).slice(0, 5);
+  }, [data]);
+
+  function onPrint(nextView: "transactions" | "bills") {
+    const base = "/admin-dashboard/reports/print?type=billing";
+    const params = new URLSearchParams();
+    if (customRange?.from && customRange?.to) {
+      params.set("from", customRange.from);
+      params.set("to", customRange.to);
+    } else {
+      params.set("range", String(rangeDays));
+    }
+    params.set("view", nextView);
+    window.open(`${base}&${params.toString()}`, "_blank", "noopener,noreferrer");
   }
 
   // Load summary report + enrich rows with patientName
   useEffect(() => {
+    if (!ready) return;
     let cancelled = false;
     setErr(null);
     setDetailsErr(null);
 
     startTransition(async () => {
       try {
-        const raw = await getBillingReport(rangeDays);
+        const raw = customRange
+          ? await getBillingReportByRange({
+              fromISO: `${customRange.from}T00:00:00`,
+              toISO: `${customRange.to}T23:59:59`,
+            })
+          : await getBillingReport(rangeDays);
         const res = normalizeBillingReport(raw);
 
+        const tooManyRows = res.rows.length > 300;
+        if (tooManyRows) {
+          setDetailsErr("Large dataset: patient names are abbreviated. Narrow the date range for full details.");
+        }
+
         const cache = new Map<string, string>();
-        const enrichedRows = await Promise.all(
-          (res.rows || []).map(async (r) => {
-            const label = await resolvePatientLabel(r.patientId, r.patientName, cache);
-            return { ...r, patientName: label };
-          })
-        );
+        const enrichedRows = tooManyRows
+          ? (res.rows || []).map((r) => ({
+              ...r,
+              patientName:
+                (r.patientName && !looksLikeUid(r.patientName) && r.patientName.trim()) ||
+                (r.patientId ? shortUid(r.patientId) : ""),
+            }))
+          : await Promise.all(
+              (res.rows || []).map(async (r) => {
+                const label = await resolvePatientLabel(r.patientId, r.patientName, cache);
+                return { ...r, patientName: label };
+              })
+            );
 
         if (!cancelled) setData({ ...res, rows: enrichedRows });
       } catch (e: any) {
+        console.error("BillingReportPanel load error:", e);
         if (!cancelled) setErr(e?.message ?? "Failed to load billing report.");
       }
     });
@@ -223,29 +310,91 @@ export default function BillingReportPanel() {
     return () => {
       cancelled = true;
     };
-  }, [rangeDays]);
+  }, [rangeDays, ready, customRange]);
 
   // Build transaction log by fetching billing_records doc details
   useEffect(() => {
+    if (!ready) return;
     if (!data?.rows?.length) {
       setTxns([]);
+      setInsights(null);
       return;
     }
 
     let cancelled = false;
     setDetailsErr(null);
+    setInsights(null);
 
     startDetailsTransition(async () => {
       try {
+        if (data.rows.length > 120) {
+          setDetailsErr(
+            "Too many billing records for detailed view. Narrow the date range to load transactions."
+          );
+          setTxns([]);
+          setInsights(null);
+          return;
+        }
+
         const cache = new Map<string, string>();
         const all: TxnRow[] = [];
+        const methodTotals = new Map<string, number>();
+        const procedureTotals = new Map<string, number>();
+        const dentistTotals = new Map<string, { dentistId: string; collected: number; procedures: number }>();
+        const appointmentCache = new Map<string, any>();
+        let collectedTotal = 0;
+        let procedureCollected = 0;
+        let installmentCollected = 0;
+        let openInstallments = 0;
+        let overdueInstallments = 0;
+        let totalProcedures = 0;
 
-        for (const row of data.rows) {
-          const recordId = row.id;
-          const snap = await getDoc(doc(db, "billing_records", recordId));
-          if (!snap.exists()) continue;
+        const rowMap = new Map(data.rows.map((r) => [r.id, r]));
+        const recordIds = data.rows.map((r) => r.id);
+        const chunkSize = 20;
+        const recordDocs: Array<{ id: string; rec: BillingRecordDoc }> = [];
 
-          const rec = snap.data() as BillingRecordDoc;
+        for (let i = 0; i < recordIds.length; i += chunkSize) {
+          const batch = recordIds.slice(i, i + chunkSize);
+          const snaps = await Promise.all(
+            batch.map(async (id) => {
+              const snap = await getDoc(doc(db, "billing_records", id));
+              return snap.exists() ? { id, rec: snap.data() as BillingRecordDoc } : null;
+            })
+          );
+          for (const s of snaps) {
+            if (s) recordDocs.push(s);
+          }
+        }
+
+        const appointmentIds = Array.from(
+          new Set(
+            recordDocs
+              .map(({ id, rec }) => rec.appointmentId ?? rowMap.get(id)?.appointmentId ?? id)
+              .filter(Boolean)
+          )
+        ) as string[];
+
+        for (let i = 0; i < appointmentIds.length; i += chunkSize) {
+          const batch = appointmentIds.slice(i, i + chunkSize);
+          const snaps = await Promise.all(
+            batch.map(async (id) => {
+              try {
+                const snap = await getDoc(doc(db, "appointments", id));
+                return snap.exists() ? { id, data: snap.data() } : null;
+              } catch {
+                return null;
+              }
+            })
+          );
+          for (const s of snaps) {
+            if (s) appointmentCache.set(s.id, s.data);
+          }
+        }
+
+        for (const { id: recordId, rec } of recordDocs) {
+          const row = rowMap.get(recordId);
+          if (!row) continue;
 
           const patientLabel = await resolvePatientLabel(
             rec.patientId ?? row.patientId,
@@ -253,19 +402,47 @@ export default function BillingReportPanel() {
             cache
           );
 
-          const appointmentId = rec.appointmentId ?? row.appointmentId;
+          const appointmentId = rec.appointmentId ?? row.appointmentId ?? recordId;
+          const appointmentData = appointmentId ? appointmentCache.get(appointmentId) : null;
+
+          const dentistId = appointmentData?.dentistId ? String(appointmentData.dentistId) : "";
+          const proceduresCount = Array.isArray(appointmentData?.treatment?.procedures)
+            ? appointmentData.treatment.procedures.length
+            : 0;
+          totalProcedures += proceduresCount;
           const items = Array.isArray(rec.items) ? rec.items : [];
           const installments = Array.isArray(rec.paymentPlan?.installments)
             ? rec.paymentPlan!.installments!
             : [];
           const transactions = Array.isArray(rec.transactions) ? rec.transactions : [];
 
+          for (const it of items) {
+            const key = String(it?.name || "Procedure");
+            const prev = procedureTotals.get(key) ?? 0;
+            const price = Number((it as any)?.price ?? 0);
+            procedureTotals.set(key, prev + (Number.isFinite(price) ? price : 0));
+          }
+
+          for (const inst of installments) {
+            const status = String(inst?.status || "").toLowerCase();
+            if (status !== "paid") openInstallments += 1;
+            if (status === "overdue") overdueInstallments += 1;
+          }
+
+          let appointmentCollected = 0;
           for (const t of transactions) {
             const mode = String(t.mode ?? "").toLowerCase();
             const dateISO = toDate(t.date)?.toISOString?.();
+            const amount = Number(t.amount ?? 0);
+            const safeAmount = Number.isFinite(amount) ? amount : 0;
+            collectedTotal += safeAmount;
+            appointmentCollected += safeAmount;
+            const method = String(t.method ?? "unknown").toLowerCase();
+            methodTotals.set(method, (methodTotals.get(method) ?? 0) + safeAmount);
 
             if (mode === "installment") {
               const inst = installments.find((x) => x.id === t.installmentId);
+              installmentCollected += safeAmount;
               all.push({
                 id: t.id ?? `${recordId}_${t.installmentId ?? "installment"}_${dateISO ?? ""}`,
                 dateISO,
@@ -273,8 +450,8 @@ export default function BillingReportPanel() {
                 appointmentId,
                 description: inst?.description ?? "Installment Payment",
                 txnType: "Installment",
-                method: t.method ?? inst?.paidMethod ?? "—",
-                amount: Number(t.amount ?? 0),
+                method: t.method ?? inst?.paidMethod ?? "",
+                amount: safeAmount,
                 status: String(inst?.status ?? "paid"),
               });
             } else {
@@ -297,11 +474,23 @@ export default function BillingReportPanel() {
                 appointmentId,
                 description,
                 txnType: "Procedure",
-                method: t.method ?? "—",
-                amount: Number(t.amount ?? 0),
+                method: t.method ?? "",
+                amount: safeAmount,
                 status: "paid",
               });
+              procedureCollected += safeAmount;
             }
+          }
+
+          if (dentistId) {
+            const prev = dentistTotals.get(dentistId) ?? {
+              dentistId,
+              collected: 0,
+              procedures: 0,
+            };
+            prev.collected += appointmentCollected;
+            prev.procedures += proceduresCount;
+            dentistTotals.set(dentistId, prev);
           }
         }
 
@@ -311,8 +500,37 @@ export default function BillingReportPanel() {
             (a.dateISO ? new Date(a.dateISO).getTime() : 0)
         );
 
-        if (!cancelled) setTxns(all);
+        if (!cancelled) {
+          const topProcedures = Array.from(procedureTotals.entries())
+            .map(([name, amount]) => ({ name, amount }))
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 6);
+
+          const dentistIncome = await Promise.all(
+            Array.from(dentistTotals.values()).map(async (d) => {
+              const name =
+                (await getUserDisplayNameByUid(d.dentistId)) ||
+                (d.dentistId.length > 10 ? `${d.dentistId.slice(0, 6)}` : d.dentistId);
+              return { ...d, dentistName: name };
+            })
+          );
+
+          setTxns(all);
+          setInsights({
+            collectedTotal,
+            collectedByMethod: Object.fromEntries(methodTotals),
+            collectedByType: { procedure: procedureCollected, installment: installmentCollected },
+            topProcedures,
+            openInstallments,
+            overdueInstallments,
+            dentistIncome: dentistIncome.sort(
+              (a, b) => b.collected - a.collected || b.procedures - a.procedures
+            ),
+            totalProcedures,
+          });
+        }
       } catch (e: any) {
+        console.error("BillingReportPanel details error:", e);
         if (!cancelled) setDetailsErr(e?.message ?? "Failed to load transaction details.");
       }
     });
@@ -320,12 +538,12 @@ export default function BillingReportPanel() {
     return () => {
       cancelled = true;
     };
-  }, [data]);
+  }, [data, ready]);
 
   const empty =
     !data || data.rows.length === 0
       ? {
-          title: pending ? "Loading report…" : "No billing records found",
+          title: pending ? "Loading report" : "No billing records found",
           description: pending
             ? "Please wait while we generate the report."
             : "Try expanding the date range.",
@@ -335,7 +553,7 @@ export default function BillingReportPanel() {
   if (err) {
     return (
       <ReportShell
-        reportName="Billing & Payment Report"
+        reportName="Billing & Collections Report"
         subtitle={subtitle}
         empty={{ title: "Error loading report", description: err }}
       >
@@ -344,262 +562,381 @@ export default function BillingReportPanel() {
     );
   }
 
+  if (!ready) {
+    return (
+      <ReportShell
+        reportName="Billing & Collections Report"
+        subtitle={subtitle}
+      >
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-sm text-slate-600">Click generate to load the report.</p>
+          <button
+            onClick={() => setReady(true)}
+            className="rounded-full px-5 py-2 text-sm font-extrabold bg-slate-900 text-white hover:bg-slate-800"
+          >
+            Generate Report
+          </button>
+        </div>
+      </ReportShell>
+    );
+  }
+
+  const txnsLimited = txns.slice(0, 200);
+  const rowsLimited = data?.rows?.slice(0, 200) ?? [];
+  const txnsTruncated = txns.length > txnsLimited.length;
+  const rowsTruncated = (data?.rows?.length || 0) > rowsLimited.length;
+
   return (
-    <>
-      {/* PRINT: ONLY TABLE + TODAY DATE */}
-      <style jsx global>{`
-@media print {
-  @page { margin: 16mm; }
-
-  /* Hide EVERYTHING */
-  body * {
-    visibility: hidden !important;
-  }
-
-  /* Show ONLY print scope */
-  #billing-report-print,
-  #billing-report-print * {
-    visibility: visible !important;
-  }
-
-  /* Position report */
-  #billing-report-print {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont;
-  }
-
-  /* Header */
-  .print-header {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    margin-bottom: 14px;
-  }
-
-  .print-header img {
-    width: 48px;
-    height: 48px;
-  }
-
-  .clinic-name {
-    font-size: 18px;
-    font-weight: 800;
-  }
-
-  .report-title {
-    font-size: 14px;
-    font-weight: 700;
-  }
-
-  .print-date {
-    font-size: 11px;
-    opacity: 0.7;
-    margin-top: 2px;
-  }
-
-  /* Table */
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-
-  th, td {
-    border: 1px solid #d1d5db;
-    padding: 6px 8px;
-    text-align: left;
-  }
-
-  thead {
-    display: table-header-group;
-    background: #f8fafc;
-  }
-
-  tr {
-    page-break-inside: avoid;
-  }
-
-  /* WATERMARK (3 faint lines) */
-  body::before {
-    content:
-      "J4 Dental Clinic Billing Transaction Report\\A"
-      "J4 Dental Clinic Billing Transaction Report\\A"
-      "J4 Dental Clinic Billing Transaction Report";
-    white-space: pre;
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    font-size: 32px;
-    font-weight: 800;
-    opacity: 0.04;
-    transform: rotate(-20deg);
-    pointer-events: none;
-  }
-
-  body::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background-image: url("/dclogo.png");
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: 380px;
-    opacity: 0.04;
-    pointer-events: none;
-  }
-}
-`}</style>
-
-      <ReportShell reportName="Billing & Payment Report" subtitle={subtitle} empty={empty}>
-        {!data ? null : (
-          <div className="space-y-4">
-            {/* controls (screen only) */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-slate-700">Range:</span>
-                {[7, 30, 90].map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setRangeDays(d as any)}
-                    className={[
-                      "rounded-full px-3 py-1.5 text-sm font-semibold transition",
-                      rangeDays === d
-                        ? "bg-slate-900 text-white"
-                        : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                    ].join(" ")}
-                  >
-                    {d}d
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-slate-700">View:</span>
+    <ReportShell reportName="Billing & Collections Report" subtitle={subtitle} empty={empty}>
+      {!data ? null : (
+        <div className="space-y-4">
+          {/* controls (screen only) */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-slate-700">Range:</span>
+              {[7, 30, 90].map((d) => (
                 <button
-                  onClick={() => setView("transactions")}
+                  key={d}
+                  onClick={() => setRangeDays(d as any)}
                   className={[
                     "rounded-full px-3 py-1.5 text-sm font-semibold transition",
-                    view === "transactions"
+                    rangeDays === d
                       ? "bg-slate-900 text-white"
                       : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
                   ].join(" ")}
                 >
-                  Transactions
+                  {d}d
                 </button>
-                <button
-                  onClick={() => setView("bills")}
-                  className={[
-                    "rounded-full px-3 py-1.5 text-sm font-semibold transition",
-                    view === "bills"
-                      ? "bg-slate-900 text-white"
-                      : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                  ].join(" ")}
-                >
-                  Bills
-                </button>
-
-                <button
-                  onClick={onPrint}
-                  className="ml-2 rounded-full px-4 py-1.5 text-sm font-extrabold bg-slate-900 text-white hover:bg-slate-800"
-                >
-                  Print
-                </button>
-              </div>
+              ))}
             </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-700">View:</span>
+              <button
+                onClick={() => setView("transactions")}
+                className={[
+                  "rounded-full px-3 py-1.5 text-sm font-semibold transition",
+                  view === "transactions"
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                Transactions
+              </button>
+              <button
+                onClick={() => setView("bills")}
+                className={[
+                  "rounded-full px-3 py-1.5 text-sm font-semibold transition",
+                  view === "bills"
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                Bills
+              </button>
 
-            {detailsErr ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                <p className="font-bold">Transactions view is limited</p>
-                <p className="mt-1">{detailsErr}</p>
+              <div className="ml-2 inline-flex items-center rounded-full border border-slate-200 overflow-hidden">
+                <button
+                  onClick={() => onPrint("transactions")}
+                  className="px-4 py-1.5 text-sm font-extrabold bg-slate-900 text-white hover:bg-slate-800"
+                >
+                  Print Transactions
+                </button>
+                <button
+                  onClick={() => onPrint("bills")}
+                  className="px-4 py-1.5 text-sm font-extrabold bg-white text-slate-700 hover:bg-slate-50 border-l border-slate-200"
+                >
+                  Print Bills
+                </button>
               </div>
-            ) : null}
-
-            {/* PRINT SCOPE: only this prints */}
-            <div id="billing-report-print">
-              <div className="print-date-only text-xs text-slate-700 mb-3">
-                Printed: {new Date().toLocaleString()}
-              </div>
-
-              {view === "transactions" ? (
-                <div className="overflow-x-auto rounded-2xl border border-slate-200 print-clean">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr className="text-left text-slate-600">
-                        <th className="px-4 py-3 font-bold">Date</th>
-                        <th className="px-4 py-3 font-bold">Patient</th>
-                        <th className="px-4 py-3 font-bold">Procedure / Description</th>
-                        <th className="px-4 py-3 font-bold">Type</th>
-                        <th className="px-4 py-3 font-bold">Method</th>
-                        <th className="px-4 py-3 font-bold">Amount</th>
-                        <th className="px-4 py-3 font-bold">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {txns.map((t) => (
-                        <tr key={t.id} className="border-t border-slate-200">
-                          <td className="px-4 py-3 text-slate-700">{formatDate(t.dateISO)}</td>
-                          <td className="px-4 py-3">
-                            <div className="font-semibold text-slate-900">{t.patientLabel}</div>
-                            <div className="text-xs text-slate-500">Appt: {t.appointmentId ?? "—"}</div>
-                          </td>
-                          <td className="px-4 py-3 text-slate-900 font-semibold">{t.description}</td>
-                          <td className="px-4 py-3 text-slate-700">{t.txnType}</td>
-                          <td className="px-4 py-3 text-slate-700">{t.method}</td>
-                          <td className="px-4 py-3 text-slate-700">{money(t.amount)}</td>
-                          <td className="px-4 py-3">
-                            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700">
-                              {t.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="overflow-x-auto rounded-2xl border border-slate-200 print-clean">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr className="text-left text-slate-600">
-                        <th className="px-4 py-3 font-bold">Date</th>
-                        <th className="px-4 py-3 font-bold">Patient</th>
-                        <th className="px-4 py-3 font-bold">Appointment</th>
-                        <th className="px-4 py-3 font-bold">Status</th>
-                        <th className="px-4 py-3 font-bold">Total</th>
-                        <th className="px-4 py-3 font-bold">Outstanding</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.rows.map((r) => (
-                        <tr key={r.id} className="border-t border-slate-200">
-                          <td className="px-4 py-3 text-slate-700">{formatDate(r.createdAt)}</td>
-                          <td className="px-4 py-3 text-slate-900 font-semibold">
-                            {r.patientName ?? "—"}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">{r.appointmentId ?? "—"}</td>
-                          <td className="px-4 py-3">
-                            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700">
-                              {r.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">{money(r.totalAmount)}</td>
-                          <td className="px-4 py-3 text-slate-700">{money(r.remainingBalance)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           </div>
-        )}
-      </ReportShell>
-    </>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-600">From</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600">To</label>
+              <input
+                type="date"
+                value={toDateValue}
+                onChange={(e) => setToDateValue(e.target.value)}
+                className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+            </div>
+            <button
+              onClick={() => {
+                if (fromDate && toDateValue) {
+                  setCustomRange({ from: fromDate, to: toDateValue });
+                }
+              }}
+              className="rounded-full px-4 py-2 text-sm font-extrabold bg-slate-900 text-white hover:bg-slate-800"
+            >
+              Apply
+            </button>
+            <button
+              onClick={() => {
+                setCustomRange(null);
+                setFromDate("");
+                setToDateValue("");
+              }}
+              className="rounded-full px-4 py-2 text-sm font-extrabold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            >
+              Clear
+            </button>
+          </div>
+
+          {pending ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              Generating report...
+            </div>
+          ) : null}
+
+          {insights ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-bold text-slate-500">Collected Total</p>
+                  <p className="mt-1 text-lg font-extrabold text-slate-900">
+                    {money(insights.collectedTotal)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-bold text-slate-500">Procedure Collected</p>
+                  <p className="mt-1 text-lg font-extrabold text-slate-900">
+                    {money(insights.collectedByType.procedure)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-bold text-slate-500">Installment Collected</p>
+                  <p className="mt-1 text-lg font-extrabold text-slate-900">
+                    {money(insights.collectedByType.installment)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-bold text-slate-500">Open Installments</p>
+                  <p className="mt-1 text-lg font-extrabold text-slate-900">
+                    {insights.openInstallments}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-bold text-slate-500">Overdue Installments</p>
+                  <p className="mt-1 text-lg font-extrabold text-slate-900">
+                    {insights.overdueInstallments}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-bold text-slate-500">Procedures (completed)</p>
+                  <p className="mt-1 text-lg font-extrabold text-slate-900">
+                    {insights.totalProcedures}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-sm font-extrabold text-slate-900">Payment Methods</p>
+                  <div className="mt-2 space-y-1 text-sm">
+                    {Object.entries(insights.collectedByMethod)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 6)
+                      .map(([method, total]) => (
+                        <div key={method} className="flex items-center justify-between text-slate-700">
+                          <span className="uppercase">{method || "unknown"}</span>
+                          <span className="font-extrabold">{money(total)}</span>
+                        </div>
+                      ))}
+                    {Object.keys(insights.collectedByMethod).length === 0 ? (
+                      <p className="text-xs text-slate-500">No payments recorded.</p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-sm font-extrabold text-slate-900">Top Procedures (Billed)</p>
+                  <div className="mt-2 space-y-1 text-sm">
+                    {insights.topProcedures.length ? (
+                      insights.topProcedures.map((p) => (
+                        <div key={p.name} className="flex items-center justify-between text-slate-700">
+                          <span className="truncate">{p.name}</span>
+                          <span className="font-extrabold">{money(p.amount)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500">No procedures billed.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-sm font-extrabold text-slate-900">Outstanding Aging</p>
+                  <div className="mt-2 space-y-1 text-sm text-slate-700">
+                    <div className="flex items-center justify-between">
+                      <span>0-30 days</span>
+                      <span className="font-extrabold">{money(aging["0-30"])}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>31-60 days</span>
+                      <span className="font-extrabold">{money(aging["31-60"])}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>61-90 days</span>
+                      <span className="font-extrabold">{money(aging["61-90"])}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>90+ days</span>
+                      <span className="font-extrabold">{money(aging["90+"])}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-extrabold text-slate-900">Top Outstanding Patients</p>
+                <div className="mt-2 space-y-1 text-sm">
+                  {topOutstanding.length ? (
+                    topOutstanding.map((p) => (
+                      <div key={p.name} className="flex items-center justify-between text-slate-700">
+                        <span className="truncate">{p.name}</span>
+                        <span className="font-extrabold">{money(p.amount)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-slate-500">No outstanding balances.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-extrabold text-slate-900">Dentist Income</p>
+                <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr className="text-left text-slate-600">
+                        <th className="px-4 py-3 font-bold">Dentist</th>
+                        <th className="px-4 py-3 font-bold">Collected</th>
+                        <th className="px-4 py-3 font-bold">Procedures</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {insights.dentistIncome.length ? (
+                        insights.dentistIncome.map((d) => (
+                          <tr key={d.dentistId} className="border-t border-slate-200">
+                            <td className="px-4 py-3 font-semibold text-slate-900">{d.dentistName}</td>
+                            <td className="px-4 py-3 text-slate-700">{money(d.collected)}</td>
+                            <td className="px-4 py-3 text-slate-700">{d.procedures}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="px-4 py-3 text-slate-500" colSpan={3}>
+                            No dentist income data.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {detailsErr ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <p className="font-bold">Transactions view is limited</p>
+              <p className="mt-1">{detailsErr}</p>
+            </div>
+          ) : null}
+
+          {view === "transactions" ? (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              {txnsTruncated ? (
+                <div className="px-4 py-3 text-xs text-amber-700 bg-amber-50 border-b border-amber-200">
+                  Showing first {txnsLimited.length} transactions. Narrow the date range to see more.
+                </div>
+              ) : null}
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="text-left text-slate-600">
+                    <th className="px-4 py-3 font-bold">Date</th>
+                    <th className="px-4 py-3 font-bold">Patient</th>
+                    <th className="px-4 py-3 font-bold">Procedure / Description</th>
+                    <th className="px-4 py-3 font-bold">Type</th>
+                    <th className="px-4 py-3 font-bold">Method</th>
+                    <th className="px-4 py-3 font-bold">Amount</th>
+                    <th className="px-4 py-3 font-bold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {txnsLimited.map((t) => (
+                    <tr key={t.id} className="border-t border-slate-200">
+                      <td className="px-4 py-3 text-slate-700">{formatDate(t.dateISO)}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-900">{t.patientLabel}</div>
+                        <div className="text-xs text-slate-500">Appt: {t.appointmentId ?? ""}</div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-900 font-semibold">{t.description}</td>
+                      <td className="px-4 py-3 text-slate-700">{t.txnType}</td>
+                      <td className="px-4 py-3 text-slate-700">{t.method}</td>
+                      <td className="px-4 py-3 text-slate-700">{money(t.amount)}</td>
+                      <td className="px-4 py-3">
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700">
+                          {t.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              {rowsTruncated ? (
+                <div className="px-4 py-3 text-xs text-amber-700 bg-amber-50 border-b border-amber-200">
+                  Showing first {rowsLimited.length} bills. Narrow the date range to see more.
+                </div>
+              ) : null}
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="text-left text-slate-600">
+                    <th className="px-4 py-3 font-bold">Date</th>
+                    <th className="px-4 py-3 font-bold">Patient</th>
+                    <th className="px-4 py-3 font-bold">Appointment</th>
+                    <th className="px-4 py-3 font-bold">Status</th>
+                    <th className="px-4 py-3 font-bold">Total</th>
+                    <th className="px-4 py-3 font-bold">Outstanding</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rowsLimited.map((r) => (
+                    <tr key={r.id} className="border-t border-slate-200">
+                      <td className="px-4 py-3 text-slate-700">{formatDate(r.createdAt)}</td>
+                      <td className="px-4 py-3 text-slate-900 font-semibold">
+                        {r.patientName ?? ""}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{r.appointmentId ?? ""}</td>
+                      <td className="px-4 py-3">
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700">
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{money(r.totalAmount)}</td>
+                      <td className="px-4 py-3 text-slate-700">{money(r.remainingBalance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </ReportShell>
   );
 }
+

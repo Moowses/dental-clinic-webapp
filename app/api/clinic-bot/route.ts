@@ -33,6 +33,29 @@ function normalize(s: string) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function parseFaq(text: string) {
+  return text
+    .split("\n\n")
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const match = block.match(/^Q:\s*([\s\S]+?)\nA:\s*([\s\S]+)$/);
+      if (!match) return null;
+      return { q: match[1].trim(), a: match[2].trim() };
+    })
+    .filter(Boolean) as Array<{ q: string; a: string }>;
+}
+
+function findFaqAnswer(message: string, faqs: Array<{ q: string; a: string }>) {
+  if (!message) return null;
+  for (const faq of faqs) {
+    if (message.includes(normalize(faq.q))) {
+      return faq.a;
+    }
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -50,13 +73,28 @@ export async function POST(req: Request) {
     // --- Load knowledge sources ---
     const procedures = await listProcedures();
     const procedureNames = procedures.map((p: any) => p.name || p.title).filter(Boolean);
+    const faqPairs = STATIC_KNOWLEDGE.flatMap((k) => parseFaq(k.text));
 
     // --- Simple FAQ/intent routing ---
+    const explicitServices =
+      lower.includes("show services") || lower.includes("list services") || lower.includes("services list");
+
     const wantsServices =
-      lower.includes("services") || lower.includes("service") || lower.includes("procedure") || lower.includes("price");
+      explicitServices ||
+      lower.includes("services") ||
+      lower.includes("service") ||
+      lower.includes("procedure") ||
+      lower.includes("price");
 
     const wantsBooking =
       lower.includes("book") || lower.includes("appointment") || lower.includes("schedule") || lower.includes("reserve");
+
+    const faqAnswer = findFaqAnswer(lower, faqPairs);
+    if (faqAnswer && !explicitServices) {
+      return NextResponse.json({
+        reply: `${displayName ? `Hi ${displayName}! ` : ""}${faqAnswer}`,
+      });
+    }
 
     // --- SERVICES LIST ---
     if (wantsServices) {

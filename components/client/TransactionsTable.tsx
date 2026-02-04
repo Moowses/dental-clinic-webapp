@@ -1,6 +1,7 @@
 "use client";
 
 import type { Appointment } from "@/lib/types/appointment";
+import { formatTime12h } from "@/lib/utils/time";
 
 function money(v: number) {
   return `₱${Number(v || 0).toLocaleString()}`;
@@ -40,6 +41,12 @@ export default function TransactionsTable({
     if (!treatment) return;
 
     const dentist = resolveDentistName(appt);
+    const patientName =
+      String((appt as any).patientName || "").trim() ||
+      String((appt as any).patientEmail || "").trim() ||
+      "Patient";
+    const apptDate = String((appt as any).date || "");
+    const apptTime = formatTime12h(String((appt as any).time || ""));
     const procedures: { name: string; price: number }[] = Array.isArray(treatment?.procedures) ? treatment.procedures : [];
 
     const computedTotal =
@@ -47,7 +54,7 @@ export default function TransactionsTable({
         ? treatment.totalBill
         : procedures.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
 
-    // Printable HTML with watermark
+    // Printable HTML (invoice-style, not official)
     const html = `
 <!doctype html>
 <html>
@@ -56,84 +63,77 @@ export default function TransactionsTable({
     <title>J4 Dental Clinic - Invoice</title>
     <style>
       @page { margin: 18mm; }
-      body { font-family: Arial, sans-serif; margin: 0; color: #111; }
+      body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; color: #111; }
       .page { position: relative; padding: 24px; }
-      .header { display: flex; align-items: center; gap: 12px; }
-      .header img { height: 48px; }
-      .clinic { font-size: 18px; font-weight: 800; margin: 0; }
+      .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .brand { display: flex; align-items: center; gap: 12px; }
+      .brand img { height: 52px; }
+      .clinic { font-size: 20px; font-weight: 800; margin: 0; }
       .note { font-size: 12px; color: #555; margin-top: 4px; }
-      .meta { margin-top: 16px; font-size: 13px; }
+      .invoice-box { text-align: right; }
+      .invoice-box .label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: .08em; }
+      .invoice-box .value { font-size: 16px; font-weight: 800; margin-top: 4px; }
+      .meta { margin-top: 18px; font-size: 13px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
       .meta p { margin: 6px 0; }
       table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-      th, td { border: 1px solid #ddd; padding: 10px 8px; font-size: 13px; }
-      th { background: #f7f7f7; text-align: left; }
+      th, td { border: 1px solid #e5e7eb; padding: 10px 8px; font-size: 13px; }
+      th { background: #f8fafc; text-align: left; }
       .right { text-align: right; }
       .total-row td { font-weight: 800; }
-      /* Watermark */
-      .watermark {
-        position: fixed;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        pointer-events: none;
-        z-index: 0;
-      }
-      .watermark span {
-        transform: rotate(-28deg);
-        font-size: 64px;
-        font-weight: 900;
-        letter-spacing: 2px;
-        color: rgba(0,0,0,0.08);
-        text-transform: uppercase;
-        white-space: nowrap;
-      }
-      .content { position: relative; z-index: 1; }
+      .foot { margin-top: 18px; font-size: 12px; color: #64748b; border-top: 1px dashed #e2e8f0; padding-top: 10px; }
     </style>
   </head>
   <body>
-    <div class="watermark"><span>NOT OFFICIAL RECEIPT</span></div>
-
     <div class="page">
-      <div class="content">
-        <div class="header">
+      <div class="header">
+        <div class="brand">
           <img src="/dclogo.png" alt="J4 Dental Clinic" />
           <div>
             <p class="clinic">J4 Dental Clinic</p>
-            <div class="note">Note: This is not an official receipt</div>
+            <div class="note">Informal summary (not an official invoice)</div>
           </div>
         </div>
-
-        <div class="meta">
-          <p><strong>Date:</strong> ${String((appt as any).date || "")}</p>
-          <p><strong>Dentist:</strong> ${dentist}</p>
-          <p><strong>Services:</strong> ${String((appt as any).serviceType || "—")}</p>
+        <div class="invoice-box">
+          <div class="label">Appointment Ref</div>
+          <div class="value">${String((appt as any).id || "").slice(0, 10)}</div>
         </div>
+      </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th>Procedure</th>
-              <th class="right">Price</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              procedures.length
-                ? procedures
-                    .map(
-                      (p) =>
-                        `<tr><td>${String(p.name || "")}</td><td class="right">₱${Number(p.price || 0).toLocaleString()}</td></tr>`
-                    )
-                    .join("")
-                : `<tr><td>—</td><td class="right">₱0</td></tr>`
-            }
-            <tr class="total-row">
-              <td class="right">Total</td>
-              <td class="right">₱${Number(computedTotal || 0).toLocaleString()}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="meta">
+        <p><strong>Patient:</strong> ${patientName}</p>
+        <p><strong>Dentist:</strong> ${dentist}</p>
+        <p><strong>Date:</strong> ${apptDate}</p>
+        <p><strong>Time:</strong> ${apptTime}</p>
+        <p><strong>Service:</strong> ${String((appt as any).serviceType || "—")}</p>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Procedure</th>
+            <th class="right">Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            procedures.length
+              ? procedures
+                  .map(
+                    (p) =>
+                      `<tr><td>${String(p.name || "")}</td><td class="right">₱${Number(p.price || 0).toLocaleString()}</td></tr>`
+                  )
+                  .join("")
+              : `<tr><td>—</td><td class="right">₱0</td></tr>`
+          }
+          <tr class="total-row">
+            <td class="right">Total</td>
+            <td class="right">₱${Number(computedTotal || 0).toLocaleString()}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="foot">
+        This document is for reference only and is not an official receipt.
       </div>
     </div>
   </body>
@@ -159,7 +159,7 @@ export default function TransactionsTable({
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
       <div className="border-b border-slate-100 px-6 py-4">
-        <h3 className="text-lg font-extrabold text-slate-900">Transactions</h3>
+        <h3 className="text-lg font-extrabold text-slate-900">Payment History</h3>
         <p className="mt-1 text-xs text-slate-500">
           Completed and cancelled appointments (latest first). Click a row to view more.
         </p>
@@ -208,11 +208,15 @@ export default function TransactionsTable({
 
                   <td className="px-6 py-4 font-semibold text-slate-900">{proceduresText}</td>
 
-                  <td className="px-6 py-4">{dentist}</td>
+                  <td className="px-6 py-4 font-semibold text-slate-900">{dentist}</td>
 
-                  <td className="px-6 py-4 font-bold">{status === "completed" ? money(total) : money(0)}</td>
+                  <td className="px-6 py-4 font-extrabold text-slate-900">
+                    {status === "completed" ? money(total) : money(0)}
+                  </td>
 
-                  <td className="px-6 py-4">{status === "completed" ? "Paid" : "N/A"}</td>
+                  <td className="px-6 py-4 font-semibold text-slate-900">
+                    {status === "completed" ? "Paid" : "N/A"}
+                  </td>
 
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">

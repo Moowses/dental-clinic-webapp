@@ -1,15 +1,15 @@
 import { db } from "../firebase/firebase";
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  doc, 
-  updateDoc, 
-  query, 
-  where, 
+import {
+  collection,
+  addDoc,
+  getDocs,
+  doc,
+  updateDoc,
+  query,
+  where,
   orderBy,
   increment,
-  serverTimestamp
+  serverTimestamp,
 } from "firebase/firestore";
 import { InventoryItem } from "../types/inventory";
 import { inventorySchema } from "../validations/inventory";
@@ -43,10 +43,14 @@ export async function addInventoryItem(data: z.infer<typeof inventorySchema>) {
   try {
     console.log("Adding Inventory Item:", data);
     const validData = inventorySchema.parse(data);
+    const cleanData = Object.fromEntries(
+      Object.entries(validData).filter(([, value]) => value !== undefined)
+    );
     const docRef = await addDoc(collection(db, COLLECTION_NAME), {
-      ...validData,
+      ...cleanData,
       updatedAt: serverTimestamp(),
     });
+    await updateDoc(docRef, { itemCode: docRef.id });
     console.log("Inventory Item Added with ID:", docRef.id);
     return { success: true, id: docRef.id };
   } catch (error) {

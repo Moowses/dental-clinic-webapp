@@ -29,9 +29,9 @@ export async function getTreatmentToolsAction(): Promise<{
     getInventory(true)
   ]);
 
-  // Filter Inventory to only show consumables (exclude instruments)
+  // Filter Inventory to only show consumables
   const consumableInventory = (inventoryRes.data || []).filter(
-    item => item.category !== "instrument"
+    item => String(item.tag || "").toLowerCase() === "consumable"
   );
 
   return {
