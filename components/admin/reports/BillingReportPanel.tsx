@@ -879,7 +879,6 @@ export default function BillingReportPanel() {
                       <td className="px-4 py-3 text-slate-700">{formatDate(t.dateISO)}</td>
                       <td className="px-4 py-3">
                         <div className="font-semibold text-slate-900">{t.patientLabel}</div>
-                        <div className="text-xs text-slate-500">Appt: {t.appointmentId ?? ""}</div>
                       </td>
                       <td className="px-4 py-3 text-slate-900 font-semibold">{t.description}</td>
                       <td className="px-4 py-3 text-slate-700">{t.txnType}</td>
@@ -907,7 +906,6 @@ export default function BillingReportPanel() {
                   <tr className="text-left text-slate-600">
                     <th className="px-4 py-3 font-bold">Date</th>
                     <th className="px-4 py-3 font-bold">Patient</th>
-                    <th className="px-4 py-3 font-bold">Appointment</th>
                     <th className="px-4 py-3 font-bold">Status</th>
                     <th className="px-4 py-3 font-bold">Total</th>
                     <th className="px-4 py-3 font-bold">Outstanding</th>
@@ -920,7 +918,6 @@ export default function BillingReportPanel() {
                       <td className="px-4 py-3 text-slate-900 font-semibold">
                         {r.patientName ?? ""}
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{r.appointmentId ?? ""}</td>
                       <td className="px-4 py-3">
                         <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-700">
                           {r.status}
