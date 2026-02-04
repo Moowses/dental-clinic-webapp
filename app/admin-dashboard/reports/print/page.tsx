@@ -108,6 +108,31 @@ function normalizeBillingReport(raw: any): BillingReportResponse {
   return { rows };
 }
 
+async function resolvePatientName(id?: string, fallback?: string) {
+  if (fallback && fallback.trim() && fallback.length < 40 && !/^[A-Za-z0-9_-]{20,}$/.test(fallback)) {
+    return fallback;
+  }
+  if (!id) return fallback || "";
+  try {
+    const snap = await getDoc(doc(db, "users", id));
+    if (snap.exists()) {
+      const u: any = snap.data();
+      return (
+        u.fullName ??
+        u.name ??
+        u.displayName ??
+        u.firstName ??
+        u.email ??
+        fallback ??
+        ""
+      );
+    }
+  } catch {
+    // ignore
+  }
+  return fallback || id;
+}
+
 function statusChip(status: string) {
   const s = String(status || "").toLowerCase();
   if (s === "paid") return { label: "Paid", cls: "chip chip-paid" };
@@ -185,12 +210,18 @@ function ReportsPrintPageInner() {
           const res = normalizeBillingReport(raw);
           if (cancelled) return;
 
-          setBillingRows(res.rows || []);
+          const enrichedRows = await Promise.all(
+            (res.rows || []).map(async (r) => ({
+              ...r,
+              patientName: await resolvePatientName(r.patientId, r.patientName),
+            }))
+          );
+          setBillingRows(enrichedRows || []);
 
           if (view === "transactions") {
             const all: TxnRow[] = [];
 
-            for (const row of res.rows || []) {
+            for (const row of enrichedRows || []) {
               const snap = await getDoc(doc(db, "billing_records", row.id));
               if (!snap.exists()) continue;
 
@@ -204,13 +235,14 @@ function ReportsPrintPageInner() {
               for (const t of transactions) {
                 const mode = String(t.mode ?? "").toLowerCase();
                 const dateISO = toDate(t.date)?.toISOString?.();
+                const patientLabel = row.patientName || row.patientId || "—";
 
                 if (mode === "installment") {
                   const inst = installments.find((x: any) => x.id === t.installmentId);
                   all.push({
                     id: t.id ?? `${row.id}_${t.installmentId ?? "installment"}_${dateISO ?? ""}`,
                     dateISO,
-                    patientLabel: row.patientName || row.patientId || "—",
+                    patientLabel,
                     appointmentId: rec.appointmentId ?? row.appointmentId,
                     description: inst?.description ?? "Installment Payment",
                     txnType: "Installment",
@@ -234,7 +266,7 @@ function ReportsPrintPageInner() {
                   all.push({
                     id: t.id ?? `${row.id}_${(t.itemIds?.[0] ?? "item")}_${dateISO ?? ""}`,
                     dateISO,
-                    patientLabel: row.patientName || row.patientId || "—",
+                    patientLabel,
                     appointmentId: rec.appointmentId ?? row.appointmentId,
                     description,
                     txnType: "Procedure",
@@ -666,6 +698,7 @@ function ReportsPrintPageInner() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 60 }}>#</th>
                   <th style={{ width: 110 }}>Date</th>
                   <th style={{ width: 220 }}>Patient</th>
                   <th>Procedure / Description</th>
@@ -678,10 +711,11 @@ function ReportsPrintPageInner() {
                 </tr>
               </thead>
               <tbody>
-                {billingTxns.map((t) => {
+                {billingTxns.map((t, idx) => {
                   const chip = statusChip(t.status);
                   return (
                     <tr key={t.id}>
+                      <td className="muted">{idx + 1}</td>
                       <td>{formatDate(t.dateISO)}</td>
                       <td>{t.patientLabel}</td>
                       <td>{t.description}</td>
@@ -700,9 +734,9 @@ function ReportsPrintPageInner() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 60 }}>#</th>
                   <th style={{ width: 110 }}>Date</th>
                   <th style={{ width: 240 }}>Patient</th>
-                  <th>Appointment</th>
                   <th style={{ width: 110 }}>Status</th>
                   <th style={{ width: 130 }} className="num">
                     Total
@@ -713,13 +747,13 @@ function ReportsPrintPageInner() {
                 </tr>
               </thead>
               <tbody>
-                {billingRows.map((r) => {
+                {billingRows.map((r, idx) => {
                   const chip = statusChip(r.status);
                   return (
                     <tr key={r.id}>
+                      <td className="muted">{idx + 1}</td>
                       <td>{formatDate(r.createdAt)}</td>
                       <td>{r.patientName || r.patientId || "—"}</td>
-                      <td className="muted">{r.appointmentId || "—"}</td>
                       <td>
                         <span className={chip.cls}>{chip.label}</span>
                       </td>
