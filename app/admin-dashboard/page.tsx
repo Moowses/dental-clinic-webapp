@@ -26,6 +26,7 @@ import WalkInBookingModal from "@/components/WalkInBookingModal";
 import ReportsPanel from "@/components/admin/ReportsPanel";
 import StaffAccountSettingsPanel from "@/components/admin/StaffAccountSettingsPanel";
 import DashboardAnalyticsPanel from "@/components/admin/DashboardAnalyticsPanel";
+import TreatmentRecordsPanel from "@/components/admin/TreatmentRecordsPanel";
 
 // ✅ NEW
 import ClinicSettings from "@/components/admin/ClinicSettings";
@@ -37,6 +38,7 @@ type TabKey =
   | "inventory"
   | "reports"
   | "patients"
+  | "treatment-records"
   | "staff"
   | "procedures"
   | "account-settings"
@@ -386,6 +388,16 @@ export default function AdminDashboardPage() {
               >
                 Patient Records
               </button>
+              <button
+                className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
+                  tab === "treatment-records"
+                    ? "bg-slate-900 text-white"
+                    : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                }`}
+                onClick={() => setTab("treatment-records")}
+              >
+                Treatment Records
+              </button>
 
               {isAdmin && (
                 <>
@@ -580,7 +592,7 @@ export default function AdminDashboardPage() {
                 )}
 
                 {isDentist && <DentistSchedulePanel />}
-                <DashboardAnalyticsPanel />
+                {(isAdmin || isFrontDesk) && <DashboardAnalyticsPanel />}
               </div>
             )}
 
@@ -716,6 +728,7 @@ export default function AdminDashboardPage() {
               )}
 
             {tab === "patients" && <PatientRecordsPanel />}
+            {tab === "treatment-records" && <TreatmentRecordsPanel />}
             {tab === "staff" && isAdmin && <StaffHRPanel />}
             {tab === "procedures" && isAdmin && <ProceduresPanel />}
 

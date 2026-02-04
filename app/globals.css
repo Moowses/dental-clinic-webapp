@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../node_modules/react-odontogram/dist/index.css";
 
 :root {
   --background: #ffffff;

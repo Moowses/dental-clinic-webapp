@@ -7,10 +7,12 @@ import {
   getTreatmentToolsAction,
   completeTreatmentAction,
 } from "@/app/actions/treatment-actions";
+import { getPatientTreatmentHistoryAction } from "@/app/actions/appointment-admin-actions";
 
 import { Odontogram } from "react-odontogram";
 import { formatTime12h } from "@/lib/utils/time";
 import { getUserDisplayNameByUid } from "@/lib/services/user-service";
+import { auth } from "@/lib/firebase/firebase";
 
 import type { Appointment } from "@/lib/types/appointment";
 import type { DentalProcedure } from "@/lib/types/clinic";
@@ -137,6 +139,14 @@ function universalToFdi(universal: number) {
   return null;
 }
 
+function fdiToUniversal(fdi: number) {
+  if (fdi >= 11 && fdi <= 18) return 19 - fdi;
+  if (fdi >= 21 && fdi <= 28) return fdi - 12;
+  if (fdi >= 31 && fdi <= 38) return 55 - fdi;
+  if (fdi >= 41 && fdi <= 48) return fdi - 16;
+  return null;
+}
+
 function keyToToothId(key: string) {
   const raw = String(key || "").trim();
   if (!raw) return null;
@@ -148,6 +158,28 @@ function keyToToothId(key: string) {
     return fdi ? `teeth-${fdi}` : null;
   }
   if (num >= 11 && num <= 48) return `teeth-${num}`;
+  return null;
+}
+
+function keyToUniversal(key: string) {
+  const raw = String(key || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("teeth-")) {
+    const num = Number(raw.replace("teeth-", ""));
+    if (!Number.isFinite(num)) return null;
+    if (num >= 11 && num <= 48) {
+      const uni = fdiToUniversal(num);
+      return uni ? String(uni) : null;
+    }
+    return null;
+  }
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return null;
+  if (num >= 1 && num <= 32) return String(num);
+  if (num >= 11 && num <= 48) {
+    const uni = fdiToUniversal(num);
+    return uni ? String(uni) : null;
+  }
   return null;
 }
 
@@ -167,14 +199,79 @@ function payloadToUniversal(payload: any) {
   return String(raw);
 }
 
+function toMillis(value: any) {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  if (typeof value === "object") {
+    if (typeof (value as any).toMillis === "function") return (value as any).toMillis();
+    if (typeof (value as any).seconds === "number") return (value as any).seconds * 1000;
+  }
+  return 0;
+}
+
+function buildChartHistory(
+  groups: Array<{
+    date?: string;
+    time?: string;
+    completedAt?: any;
+    dentalChart?: Record<string, { status?: string; notes?: string }>;
+  }>
+) {
+  const map: Record<string, Array<{ date: string; status?: string; notes?: string }>> = {};
+  const formatLabel = (g: { date?: string; time?: string; completedAt?: any }) => {
+    if (g.date && g.time) return `${g.date} ${g.time}`;
+    if (g.date) return g.date;
+    const ts = toMillis(g.completedAt);
+    if (ts) return new Date(ts).toLocaleString();
+    return "Unknown date";
+  };
+
+  for (const g of groups || []) {
+    const label = formatLabel(g);
+    const chart = g.dentalChart || {};
+    for (const [rawKey, entry] of Object.entries(chart)) {
+      const uniKey = keyToUniversal(rawKey);
+      if (!uniKey) continue;
+      const status =
+        (entry as any)?.status ??
+        (entry as any)?.state ??
+        (entry as any)?.condition ??
+        "";
+      const notes =
+        (entry as any)?.notes ??
+        (entry as any)?.note ??
+        (entry as any)?.description ??
+        "";
+      if (!status && !notes) continue;
+      if (!map[uniKey]) map[uniKey] = [];
+      map[uniKey].push({ date: label, status: String(status || ""), notes: String(notes || "") });
+    }
+  }
+
+  Object.values(map).forEach((list) => {
+    list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  });
+
+  return map;
+}
+
 function DentalChartModal({
   open,
   chart,
+  history,
+  historyLoading,
   onClose,
   onSave,
 }: {
   open: boolean;
   chart: Record<string, { status?: string; notes?: string }>;
+  history?: Record<string, Array<{ date: string; status?: string; notes?: string }>>;
+  historyLoading?: boolean;
   onClose: () => void;
   onSave: (chart: Record<string, { status?: string; notes?: string }>) => void;
 }) {
@@ -182,6 +279,7 @@ function DentalChartModal({
   const [toothNumber, setToothNumber] = useState("");
   const [status, setStatus] = useState("");
   const [notes, setNotes] = useState("");
+  const [extracted, setExtracted] = useState(false);
   const [selectedTeeth, setSelectedTeeth] = useState<any[]>([]);
   const pendingRef = React.useRef<number | null>(null);
 
@@ -191,15 +289,55 @@ function DentalChartModal({
     setToothNumber("");
     setStatus("");
     setNotes("");
+    setExtracted(false);
     setSelectedTeeth([]);
   }, [open, chart]);
 
   if (!open) return null;
 
+  const isExtractedEntry = (entry?: { status?: string; notes?: string }) => {
+    const statusValue = String(entry?.status || "").toLowerCase();
+    const notesValue = String(entry?.notes || "").toLowerCase();
+    return (
+      statusValue.includes("extract") ||
+      statusValue.includes("removed") ||
+      statusValue.includes("denture") ||
+      notesValue.includes("extract") ||
+      notesValue.includes("removed") ||
+      notesValue.includes("denture")
+    );
+  };
+
   const rows = Object.entries(draft);
   const initialSelected = rows
     .map(([key]) => keyToToothId(key))
     .filter(Boolean) as string[];
+
+  const historyMap = history || {};
+  const extractedSelected = Array.from(
+    new Set(
+      Object.entries(historyMap)
+        .filter(([_, entries]) => entries.some((e) => isExtractedEntry(e)))
+        .map(([key]) => keyToToothId(key))
+        .filter(Boolean) as string[]
+    )
+  );
+  const notedSelected = Array.from(
+    new Set(
+      Object.entries(historyMap)
+        .filter(([key, entries]) => {
+          const toothId = keyToToothId(key);
+          if (toothId && extractedSelected.includes(toothId)) return false;
+          return entries.some((e) => {
+            const statusValue = String(e.status || "").trim();
+            const notesValue = String(e.notes || "").trim();
+            return Boolean(statusValue || notesValue);
+          });
+        })
+        .map(([key]) => keyToToothId(key))
+        .filter(Boolean) as string[]
+    )
+  );
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
@@ -207,6 +345,12 @@ function DentalChartModal({
         <div className="px-6 py-4 border-b border-slate-200">
           <h3 className="text-lg font-extrabold text-slate-900">Dental Chart</h3>
           <p className="text-xs text-slate-500 mt-0.5">Add or update tooth notes</p>
+          <div className="mt-2 text-[11px] text-slate-500 space-y-1">
+            <p>1) Click a tooth to load current notes.</p>
+            <p>2) Use “Extracted” for removed teeth (marks black).</p>
+            <p>3) Add / Update, then Save Dental Chart.</p>
+            <p>Yellow = teeth with notes, Black = extracted.</p>
+          </div>
         </div>
 
         <div className="p-6 space-y-4">
@@ -219,7 +363,11 @@ function DentalChartModal({
             />
             <input
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setStatus(next);
+                if (next.toLowerCase().includes("extract")) setExtracted(true);
+              }}
               className={inputBase}
               placeholder="Status (e.g. caries)"
             />
@@ -230,6 +378,24 @@ function DentalChartModal({
               placeholder="Notes"
             />
           </div>
+          <label className="flex items-center gap-2 text-xs font-extrabold text-slate-600 uppercase tracking-widest">
+            <input
+              type="checkbox"
+              checked={extracted}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setExtracted(next);
+                if (next) setStatus("extracted");
+              }}
+              className="h-4 w-4 rounded border-slate-300 text-slate-900"
+            />
+            Extracted
+            {extracted ? (
+              <span className="text-[11px] font-normal normal-case text-slate-500">
+                (overrides status)
+              </span>
+            ) : null}
+          </label>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
             <p className="text-xs font-extrabold uppercase tracking-widest text-slate-600">
@@ -238,7 +404,45 @@ function DentalChartModal({
             <p className="mt-1 text-xs text-slate-500">
               Click a tooth to load its notes below, then use Add/Update and Save. Finalize Treatment to store in records.
             </p>
-              <div className="mt-3">
+            {historyLoading ? (
+              <p className="mt-2 text-xs text-slate-500">Loading history...</p>
+            ) : Object.keys(historyMap).length === 0 ? (
+              <p className="mt-2 text-xs text-slate-500">No prior dental chart history found.</p>
+            ) : (
+              <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                <div className="inline-flex items-center gap-2">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-400" />
+                  Teeth with notes
+                </div>
+                <div className="inline-flex items-center gap-2">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-900" />
+                  Extracted / removed / dentures
+                </div>
+                <div className="inline-flex items-center gap-2">Hover teeth to view history</div>
+              </div>
+            )}
+            <div className="mt-3 relative">
+              <div className="absolute inset-0 pointer-events-none">
+                <Odontogram
+                  key={`history-extracted-${extractedSelected.join(",")}`}
+                  defaultSelected={extractedSelected}
+                  theme="light"
+                  colors={{ lightBlue: "#0f172a", darkBlue: "#0f172a", baseBlue: "#0f172a" }}
+                  tooltip={{ content: () => null }}
+                  showTooltip={false}
+                />
+              </div>
+              <div className="absolute inset-0 pointer-events-none">
+                <Odontogram
+                  key={`history-notes-${notedSelected.join(",")}`}
+                  defaultSelected={notedSelected}
+                  theme="light"
+                  colors={{ lightBlue: "#fbbf24", darkBlue: "#f59e0b", baseBlue: "#fde68a" }}
+                  tooltip={{ content: () => null }}
+                  showTooltip={false}
+                />
+              </div>
+              <div className="relative">
                 <Odontogram
                   key={initialSelected.join(",")}
                   defaultSelected={initialSelected}
@@ -247,34 +451,56 @@ function DentalChartModal({
                   tooltip={{
                     content: (payload: any) => {
                       const key = payloadToUniversal(payload);
-                    const entry = key ? draft[key] : null;
-                    return (
-                      <div>
-                        <div>Tooth: {key || "—"}</div>
-                        <div>Status: {entry?.status || "—"}</div>
-                        <div>Notes: {entry?.notes || "—"}</div>
-                      </div>
-                    );
-                  },
-                }}
-                onChange={(next: any) => {
-                  if (!next || typeof next !== "object") return;
-                  const list = Array.isArray(next) ? next : [];
-                  if (!list.length) return;
-                  const picked = list[list.length - 1];
-                  const key = String(toothToUniversal(picked) || "").trim();
-                  if (!key) return;
-                  if (pendingRef.current) {
-                    window.clearTimeout(pendingRef.current);
-                  }
-                  pendingRef.current = window.setTimeout(() => {
-                    setToothNumber(key);
-                    setStatus(draft[key]?.status || "");
-                    setNotes(draft[key]?.notes || "");
-                    setSelectedTeeth(list);
-                  }, 0);
-                }}
-              />
+                      const entry = key ? draft[key] : null;
+                      const entries = key ? historyMap[key] || [] : [];
+                      return (
+                        <div>
+                          <div>Tooth: {key || "—"}</div>
+                          <div>Current Status: {entry?.status || "—"}</div>
+                          <div>Current Notes: {entry?.notes || "—"}</div>
+                          {entries.length ? (
+                            <div className="mt-2">
+                              <div className="text-[11px] font-extrabold uppercase tracking-widest text-slate-600">
+                                History
+                              </div>
+                              <div className="mt-1 space-y-1">
+                                {entries.map((e, idx) => (
+                                  <div key={`${key}-${idx}`}>
+                                    <div>{e.date}</div>
+                                    <div>
+                                      Status: {e.status || "—"}
+                                      {isExtractedEntry(e) ? " (Extracted)" : ""}
+                                    </div>
+                                    <div>Notes: {e.notes || "—"}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    },
+                  }}
+                  onChange={(next: any) => {
+                    if (!next || typeof next !== "object") return;
+                    const list = Array.isArray(next) ? next : [];
+                    if (!list.length) return;
+                    const picked = list[list.length - 1];
+                    const key = String(toothToUniversal(picked) || "").trim();
+                    if (!key) return;
+                    if (pendingRef.current) {
+                      window.clearTimeout(pendingRef.current);
+                    }
+                    pendingRef.current = window.setTimeout(() => {
+                      setToothNumber(key);
+                      setStatus(draft[key]?.status || "");
+                      setNotes(draft[key]?.notes || "");
+                      setExtracted(isExtractedEntry(draft[key]));
+                      setSelectedTeeth(list);
+                    }, 0);
+                  }}
+                />
+              </div>
             </div>
           </div>
 
@@ -286,7 +512,7 @@ function DentalChartModal({
                 const next = {
                   ...draft,
                   [key]: {
-                    status: status.trim() || undefined,
+                    status: extracted ? "extracted" : status.trim() || undefined,
                     notes: notes.trim() || undefined,
                   },
                 };
@@ -294,6 +520,7 @@ function DentalChartModal({
                 setToothNumber("");
                 setStatus("");
                 setNotes("");
+                setExtracted(false);
               }}
               className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-extrabold hover:bg-black"
             >
@@ -304,6 +531,7 @@ function DentalChartModal({
                 setToothNumber("");
                 setStatus("");
                 setNotes("");
+                setExtracted(false);
               }}
               className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-extrabold hover:bg-slate-50"
             >
@@ -396,14 +624,18 @@ function TreatmentModal({
     }[]
   >([]);
 
-  const [usedInv, setUsedInv] = useState<{ [id: string]: number }>({});
-  const [notes, setNotes] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [chartOpen, setChartOpen] = useState(false);
-  const [dentalChart, setDentalChart] = useState<
-    Record<string, { status?: string; notes?: string }>
-  >({});
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
+    const [usedInv, setUsedInv] = useState<{ [id: string]: number }>({});
+    const [notes, setNotes] = useState("");
+    const [isSaving, setIsSaving] = useState(false);
+    const [chartOpen, setChartOpen] = useState(false);
+    const [dentalChart, setDentalChart] = useState<
+      Record<string, { status?: string; notes?: string }>
+    >({});
+    const [historyMap, setHistoryMap] = useState<
+      Record<string, Array<{ date: string; status?: string; notes?: string }>>
+    >({});
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -414,6 +646,43 @@ function TreatmentModal({
       if (res.success && res.data) setTools(res.data as any);
     });
   }, []);
+
+  useEffect(() => {
+    setHistoryMap({});
+    setHistoryLoading(false);
+  }, [appointment.id]);
+
+  useEffect(() => {
+    if (!chartOpen) return;
+    const patientId = String((appointment as any)?.patientId || "").trim();
+    if (!patientId) return;
+
+    let active = true;
+    setHistoryLoading(true);
+    (async () => {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        if (active) setHistoryLoading(false);
+        return;
+      }
+      const res = await getPatientTreatmentHistoryAction({
+        patientId,
+        idToken: token,
+      });
+      if (!active) return;
+      if (!res?.success || !res.data) {
+        setHistoryMap({});
+        setHistoryLoading(false);
+        return;
+      }
+      setHistoryMap(buildChartHistory(res.data.groups || []));
+      setHistoryLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [chartOpen, appointment]);
 
   const addProcedure = (p: any) => {
     setProcList([
@@ -864,6 +1133,8 @@ function TreatmentModal({
         <DentalChartModal
           open={chartOpen}
           chart={dentalChart}
+          history={historyMap}
+          historyLoading={historyLoading}
           onClose={() => setChartOpen(false)}
           onSave={(next) => setDentalChart(next)}
         />

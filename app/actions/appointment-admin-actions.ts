@@ -114,6 +114,43 @@ function pickAttachmentGroups(appointments: any[]) {
   return groups;
 }
 
+function pickTreatmentHistory(appointments: any[]) {
+  const groups = appointments
+    .filter((a) => (a as any)?.treatment)
+    .map((a) => {
+      const treatment = (a as any).treatment || {};
+      const completedAt = treatment.completedAt;
+      const date = (a as any).date;
+      const time = (a as any).time;
+      const score =
+        toMillis(completedAt) ||
+        toMillis(date && time ? `${date}T${time}:00` : date) ||
+        0;
+      return {
+        appointmentId: (a as any).id,
+        dentistId: (a as any).dentistId || null,
+        date,
+        time,
+        completedAt,
+        notes: treatment.notes || "",
+        procedures: Array.isArray(treatment.procedures)
+          ? treatment.procedures.map((p: any) => ({
+              name: p?.name || "",
+              toothNumber: p?.toothNumber || "",
+              price: p?.price ?? null,
+            }))
+          : [],
+        imageUrls: Array.isArray(treatment.imageUrls) ? treatment.imageUrls : [],
+        dentalChart: treatment.dentalChart || {},
+        score,
+      };
+    })
+    .filter((g) => g.procedures.length || g.notes || g.imageUrls.length || Object.keys(g.dentalChart || {}).length);
+
+  groups.sort((a, b) => b.score - a.score);
+  return groups;
+}
+
 export async function getPatientDentalChartAction(input: {
   patientId: string;
   idToken: string;
@@ -211,6 +248,56 @@ export async function getPatientAttachmentsAction(input: {
     imageUrls: g.imageUrls,
     notes: g.notes || undefined,
     procedures: g.procedures || [],
+  }));
+
+  return {
+    success: true,
+    data: { groups },
+  };
+}
+
+export async function getPatientTreatmentHistoryAction(input: {
+  patientId: string;
+  idToken: string;
+}): Promise<{
+  success: boolean;
+  data?: {
+    groups: Array<{
+      appointmentId: string;
+      dentistId?: string | null;
+      date?: string;
+      time?: string;
+      completedAt?: any;
+      notes?: string;
+      procedures?: Array<{ name?: string; toothNumber?: string; price?: number | null }>;
+      imageUrls?: string[];
+      dentalChart?: Record<string, DentalChartEntry>;
+    }>;
+  };
+  error?: string;
+}> {
+  if (!input?.patientId || !input?.idToken) {
+    return { success: false, error: "Missing required fields" };
+  }
+
+  const ok = await verifyStaffToken(input.idToken);
+  if (!ok) return { success: false, error: "Unauthorized" };
+
+  const res = await getAppointmentsByPatientIdAdmin(input.patientId);
+  if (!res.success || !res.data) {
+    return { success: false, error: res.error || "Failed to load appointments" };
+  }
+
+  const groups = pickTreatmentHistory(res.data).map((g) => ({
+    appointmentId: g.appointmentId,
+    dentistId: g.dentistId,
+    date: g.date,
+    time: g.time,
+    completedAt: g.completedAt,
+    notes: g.notes || undefined,
+    procedures: g.procedures || [],
+    imageUrls: g.imageUrls || [],
+    dentalChart: g.dentalChart || {},
   }));
 
   return {
