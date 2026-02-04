@@ -440,15 +440,22 @@ export default function BillingReportPanel() {
             const method = String(t.method ?? "unknown").toLowerCase();
             methodTotals.set(method, (methodTotals.get(method) ?? 0) + safeAmount);
 
-            if (mode === "installment") {
+            if (mode === "installment" || mode === "installment_full") {
               const inst = installments.find((x) => x.id === t.installmentId);
+              const baseDesc = String(inst?.description || "").trim();
+              const baseName = baseDesc
+                ? baseDesc.split("•")[0].trim()
+                : "Installment";
               installmentCollected += safeAmount;
               all.push({
                 id: t.id ?? `${recordId}_${t.installmentId ?? "installment"}_${dateISO ?? ""}`,
                 dateISO,
                 patientLabel,
                 appointmentId,
-                description: inst?.description ?? "Installment Payment",
+                description:
+                  mode === "installment_full"
+                    ? `${baseName} - Installment Full Pay`
+                    : inst?.description ?? "Installment Payment",
                 txnType: "Installment",
                 method: t.method ?? inst?.paidMethod ?? "",
                 amount: safeAmount,

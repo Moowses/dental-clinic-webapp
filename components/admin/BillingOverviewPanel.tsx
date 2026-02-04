@@ -282,7 +282,9 @@ export default function BillingOverviewPanel({
                     >
                       <td className="p-3">
                         <div className="font-extrabold text-slate-900">{r.patientName}</div>
-                        <div className="text-xs text-slate-500">{r.patientId.slice(0, 10)}…</div>
+                        <div className="text-xs text-slate-500">
+                          Last activity: {fmtDateMs(r.lastActivityMs)}
+                        </div>
                       </td>
                       <td className="p-3 text-slate-700 font-bold whitespace-nowrap">{r.billsCount}</td>
                       <td className="p-3 text-slate-700 font-bold whitespace-nowrap">{r.paidBills}</td>

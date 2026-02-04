@@ -185,6 +185,25 @@ export async function processPayment(
       return s === "paid" || s === "void" || s === "waived";
     };
 
+    const settleInstallments = (plan: any, methodUsed?: string, staff?: string) => {
+      if (!plan || !Array.isArray(plan.installments)) return plan;
+      return {
+        ...plan,
+        type: "full",
+        installments: plan.installments.map((inst: any) => {
+          const st = String(inst?.status || "").toLowerCase();
+          if (st === "paid") return inst;
+          return {
+            ...inst,
+            status: "paid",
+            paidAt: Timestamp.now(),
+            paidBy: staff || "system",
+            paidMethod: methodUsed || inst?.paidMethod,
+          };
+        }),
+      };
+    };
+
     // --- ITEM-BASED PAYMENT MODE ---
     if (hasItems && Array.isArray(itemIds) && itemIds.length > 0) {
       // 1) Only allow paying items that are not excluded
@@ -221,25 +240,36 @@ export async function processPayment(
             : "unpaid";
 
       // 4) Add transaction (store itemIds for audit trail)
-            const transaction: any = {
-          // NOTE: crypto.randomUUID() fails on non-secure origins (e.g. http://<public-ip>)
-          // while http://localhost is treated as secure. Use a Firestore-style auto id instead.
-          id: doc(collection(db, "_ids")).id,
-          amount,
-          method,
-          date: Timestamp.now(),
-          recordedBy: staffId || "system",
-          mode: "amount",
-        };
+      const hasPlan =
+        Array.isArray(current?.paymentPlan?.installments) && current.paymentPlan.installments.length > 0;
+      const transaction: any = {
+        // NOTE: crypto.randomUUID() fails on non-secure origins (e.g. http://<public-ip>)
+        // while http://localhost is treated as secure. Use a Firestore-style auto id instead.
+        id: doc(collection(db, "_ids")).id,
+        amount,
+        method,
+        date: Timestamp.now(),
+        recordedBy: staffId || "system",
+        mode: status === "paid" && hasPlan ? "installment_full" : "amount",
+      };
 
-      await updateDoc(docRef, {
+      const paymentPlan =
+        status === "paid"
+          ? settleInstallments(current.paymentPlan || {}, method, staffId)
+          : current.paymentPlan || undefined;
+
+      const updatePayload: any = {
         items: updatedItems,
         totalAmount,
         remainingBalance,
         status,
         transactions: [...(current.transactions || []), transaction],
         updatedAt: serverTimestamp(),
-      });
+      };
+
+      if (paymentPlan) updatePayload.paymentPlan = paymentPlan;
+
+      await updateDoc(docRef, updatePayload);
 
       // 5) Keep appointment in sync
       const appRef = doc(db, APPOINTMENTS_COLLECTION, appointmentId);
@@ -264,16 +294,24 @@ export async function processPayment(
           ? "partial"
           : "unpaid";
 
+    const hasPlan =
+      Array.isArray(current?.paymentPlan?.installments) && current.paymentPlan.installments.length > 0;
     const transaction: any = {
       id: crypto.randomUUID(),
       amount,
       method,
       date: Timestamp.now(),
       recordedBy: staffId || "system",
-      mode: "amount",
+      mode: status === "paid" && hasPlan ? "installment_full" : "amount",
     };
 
+    const paymentPlan =
+      status === "paid"
+        ? settleInstallments(current.paymentPlan || {}, method, staffId)
+        : current.paymentPlan || undefined;
+
     await updateDoc(docRef, {
+      ...(paymentPlan ? { paymentPlan } : {}),
       remainingBalance: newBalance,
       status,
       transactions: [...(current.transactions || []), transaction],

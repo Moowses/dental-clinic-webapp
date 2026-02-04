@@ -8,6 +8,7 @@ import {
   payInstallmentAction,
   recordBillingPaymentAction,
 } from "@/app/actions/billing-actions";
+import { getAppointmentById } from "@/lib/services/appointment-service";
 
 type InstallmentStatus = "pending" | "paid" | "cancelled" | "overdue";
 
@@ -237,6 +238,7 @@ export default function BillingPaymentPlansPanel({
   const [planTerms, setPlanTerms] = useState<string>("");
 
   const [confirm, setConfirm] = useState<ConfirmState>(null);
+  const [apptMeta, setApptMeta] = useState<Record<string, { date?: string; time?: string }>>({});
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -273,7 +275,36 @@ export default function BillingPaymentPlansPanel({
     setPlanTerms("");
     setErr(null);
     setConfirm(null);
+    setApptMeta({});
   }, [billingId]);
+
+  useEffect(() => {
+    let active = true;
+    const ids = Array.from(
+      new Set(
+        (patientBills || [])
+          .map((b) => String(b.appointmentId || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (!ids.length) return () => {};
+
+    (async () => {
+      const next: Record<string, { date?: string; time?: string }> = {};
+      for (const id of ids) {
+        const res = await getAppointmentById(id);
+        if (res?.success && res.data) {
+          next[id] = { date: (res.data as any).date, time: (res.data as any).time };
+        }
+      }
+      if (!active) return;
+      setApptMeta((prev) => ({ ...prev, ...next }));
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [patientBills]);
 
   function rankStatus(s: string) {
     const st = (s || "").toLowerCase();
@@ -291,9 +322,10 @@ export default function BillingPaymentPlansPanel({
       const res = await getBillingByPatientAction(pid, "all");
       if (!res?.success) throw new Error(res?.error || "Failed to load patient bills.");
       const list = Array.isArray(res.data) ? (res.data as BillingRecord[]) : [];
+      const openOnly = list.filter((b) => Number(computeTotals(b).remaining || 0) > 0);
 
       // ✅ ensure the UI promise "unpaid/partial first" is true
-      const sorted = [...list].sort((a, b) => {
+      const sorted = [...openOnly].sort((a, b) => {
         const ta = computeTotals(a).status;
         const tb = computeTotals(b).status;
         const ra = rankStatus(ta);
@@ -363,17 +395,13 @@ export default function BillingPaymentPlansPanel({
     if (!bill) return;
     setErr(null);
 
-    const amount = Number(payAmount || 0);
+    const amount = fullBalance ? Number(totals.remaining || 0) : Number(payAmount || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       setErr("Please enter a valid payment amount.");
       return;
     }
-
     if (fullBalance) {
-      if (Math.abs(amount - totals.remaining) > 0.01) {
-        setErr("Amount must match the full remaining balance.");
-        return;
-      }
+      setPayAmount(String(amount));
     }
 
     if (!fullBalance && selectedItemIds.length) {
@@ -548,12 +576,18 @@ export default function BillingPaymentPlansPanel({
                       Unpaid/partial appointments appear first.
                     </div>
                   </div>
-                  <div className="text-xs text-slate-500">
-                    Active:{" "}
-                    <span className="font-extrabold text-slate-900">
-                      {activeAppointmentId || "—"}
-                    </span>
-                  </div>
+                    <div className="text-xs text-slate-500">
+                      Active:{" "}
+                      <span className="font-extrabold text-slate-900">
+                        {activeAppointmentId && apptMeta[activeAppointmentId]?.date
+                          ? `${apptMeta[activeAppointmentId]?.date}${
+                              apptMeta[activeAppointmentId]?.time
+                                ? ` ${apptMeta[activeAppointmentId]?.time}`
+                                : ""
+                            }`
+                          : "—"}
+                      </span>
+                    </div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -596,10 +630,14 @@ export default function BillingPaymentPlansPanel({
                             </span>
                           </div>
 
-                          {/* Keep appt ID for QA/debug */}
-                          <div className={`mt-1 text-[11px] ${active ? "text-white/70" : "text-slate-500"}`}>
-                            Appt: <span className="font-mono">{b.appointmentId}</span>
-                          </div>
+                            <div className={`mt-1 text-[11px] ${active ? "text-white/70" : "text-slate-500"}`}>
+                              Appointment:{" "}
+                              {apptMeta[b.appointmentId]?.date
+                                ? `${apptMeta[b.appointmentId]?.date}${
+                                    apptMeta[b.appointmentId]?.time ? ` ${apptMeta[b.appointmentId]?.time}` : ""
+                                  }`
+                                : "—"}
+                            </div>
 
                           <div className="mt-2 flex items-end justify-between">
                             <div>
@@ -650,13 +688,14 @@ export default function BillingPaymentPlansPanel({
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <div className="text-xs text-slate-500 font-bold">APPOINTMENT</div>
-                        <div className="text-sm font-extrabold text-slate-900">
-                          {bill.appointmentId}
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          Updated: {fmtDateTime(bill.updatedAt)}
-                        </div>
+                    <div className="text-xs text-slate-500 font-bold">APPOINTMENT DATE</div>
+                    <div className="text-sm font-extrabold text-slate-900">
+                      {apptMeta[bill.appointmentId]?.date
+                        ? `${apptMeta[bill.appointmentId]?.date}${
+                            apptMeta[bill.appointmentId]?.time ? ` ${apptMeta[bill.appointmentId]?.time}` : ""
+                          }`
+                        : "—"}
+                    </div>
                       </div>
 
                       <div className="flex items-end justify-between gap-3 md:justify-end">
