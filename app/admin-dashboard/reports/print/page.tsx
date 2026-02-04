@@ -237,14 +237,19 @@ function ReportsPrintPageInner() {
                 const dateISO = toDate(t.date)?.toISOString?.();
                 const patientLabel = row.patientName || row.patientId || "—";
 
-                if (mode === "installment") {
+                if (mode === "installment" || mode === "installment_full") {
                   const inst = installments.find((x: any) => x.id === t.installmentId);
+                  const baseDesc = String(inst?.description || "").trim();
+                  const baseName = baseDesc ? baseDesc.split("•")[0].trim() : "Installment";
                   all.push({
                     id: t.id ?? `${row.id}_${t.installmentId ?? "installment"}_${dateISO ?? ""}`,
                     dateISO,
                     patientLabel,
                     appointmentId: rec.appointmentId ?? row.appointmentId,
-                    description: inst?.description ?? "Installment Payment",
+                    description:
+                      mode === "installment_full"
+                        ? `${baseName} - Installment Full Pay`
+                        : inst?.description ?? "Installment Payment",
                     txnType: "Installment",
                     method: t.method ?? inst?.paidMethod ?? "—",
                     amount: Number(t.amount ?? 0),
