@@ -7,8 +7,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/hooks/useAuth";
 
-import { getAllProcedures } from "@/lib/services/clinic-service";
-import type { DentalProcedure } from "@/lib/types/clinic";
+import { getAllServicesAction } from "@/app/actions/service-actions";
+import type { DentalService } from "@/lib/types/service";
 
 const AuthModal = dynamic(() => import("@/components/AuthModal"), {
   ssr: false,
@@ -20,6 +20,7 @@ type Service = {
   title: string;
   desc: string;
   price: string;
+  image?: string;
 };
 
 function formatPeso(amount?: number | null) {
@@ -30,19 +31,32 @@ function formatPeso(amount?: number | null) {
   })}`;
 }
 
-function ServiceCard({ title, desc, price }: Service) {
+function ServiceCard({ title, desc, price, image }: Service) {
+  // Cloudinary optimization parameters
+  const optimizedImage = image 
+    ? image.replace('/upload/', '/upload/w_600,h_400,c_fill,g_auto,q_auto,f_auto/')
+    : null;
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="h-40 w-full rounded-t-2xl bg-slate-50 flex items-center justify-center text-slate-400 text-xs">
-        Service Image
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col h-full">
+      <div className="h-48 w-full bg-slate-100 flex items-center justify-center text-slate-400 text-xs relative">
+        {optimizedImage ? (
+          <img src={optimizedImage} alt={title} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-3xl">🦷</span>
+            <p className="font-bold uppercase tracking-widest opacity-40">J4 Clinic</p>
+          </div>
+        )}
       </div>
 
-      <div className="p-6">
-        <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-        <p className="mt-2 text-sm leading-relaxed text-slate-600">{desc}</p>
+      <div className="p-6 flex flex-col flex-1">
+        <h3 className="text-base font-bold text-slate-900 line-clamp-1">{title}</h3>
+        <p className="mt-2 text-sm leading-relaxed text-slate-600 line-clamp-3 flex-1">{desc}</p>
 
-        <div className="mt-5">
-          <span className="text-sm font-semibold text-slate-900">{price}</span>
+        <div className="mt-5 flex items-center justify-between">
+          <span className="text-sm font-black text-[#0E4B5A]">{price}</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Starting at</span>
         </div>
       </div>
     </div>
@@ -187,7 +201,8 @@ export default function HomePage() {
       setSvcLoading(true);
       setSvcError(null);
 
-      const res = await getAllProcedures(true);
+      // Fetch from the actual public Services catalog (only active)
+      const res = await getAllServicesAction(true);
       if (!res.success || !res.data) {
         setSvcError(res.error || "Failed to load services");
         setServices([]);
@@ -195,14 +210,13 @@ export default function HomePage() {
         return;
       }
 
-      const procs: DentalProcedure[] = res.data;
+      const catalog: DentalService[] = res.data;
 
-      const mapped: Service[] = procs.map((p: any) => ({
-        title: p?.name || "Service",
-        desc:
-          p?.description ||
-          "Professional dental care with proper assessment and personalized treatment.",
-        price: formatPeso(p?.basePrice ?? null),
+      const mapped: Service[] = catalog.map((s) => ({
+        title: s.name || "Service",
+        desc: s.description || "Professional dental care with proper assessment and personalized treatment.",
+        price: formatPeso(s.price ?? null),
+        image: s.imageUrl,
       }));
 
       setServices(mapped);
@@ -378,16 +392,6 @@ export default function HomePage() {
             </div>
 
             {servicesContent}
-
-            <div className="mt-10 text-center">
-              <Link
-                href="/services"
-                className="inline-flex w-fit items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
-                style={{ backgroundColor: BRAND }}
-              >
-                View All Services
-              </Link>
-            </div>
           </div>
         </section>
 

@@ -4,13 +4,10 @@ import { createService, updateService, deleteService, getAllServices } from "@/l
 import { getUserProfile } from "@/lib/services/user-service";
 import { DentalService } from "@/lib/types/service";
 
-export async function getAllServicesAction(): Promise<{ success: boolean; data?: DentalService[]; error?: string }> {
-  const { auth } = await import("@/lib/firebase/firebase");
-  if (!auth.currentUser) return { success: false, error: "Not authenticated" };
-  
-  // Optional: Check role if this is internal only, but "Services" are usually public info?
-  // Let's restrict it to authenticated for now since this is a management API.
-  return await getAllServices(false); // Fetch all (including inactive)
+export async function getAllServicesAction(onlyActive: boolean = false): Promise<{ success: boolean; data?: DentalService[]; error?: string }> {
+  // Removed authentication check because the Service Catalog is public-facing information
+  // for guests visiting the website.
+  return await getAllServices(onlyActive); 
 }
 
 export async function createServiceAction(prevState: ActionState, data: FormData): Promise<ActionState> {
@@ -29,7 +26,6 @@ export async function createServiceAction(prevState: ActionState, data: FormData
   const formattedData = {
     ...rawData,
     price: Number(rawData.price),
-    durationMinutes: Number(rawData.durationMinutes),
     isActive: rawData.isActive === "true" || rawData.isActive === "on"
   };
 
@@ -58,7 +54,6 @@ export async function updateServiceAction(serviceId: string, data: FormData): Pr
   const formattedData = {
     ...rawData,
     price: Number(rawData.price),
-    durationMinutes: Number(rawData.durationMinutes),
     isActive: rawData.isActive === "true" || rawData.isActive === "on"
   };
 

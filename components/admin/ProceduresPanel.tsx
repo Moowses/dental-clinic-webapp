@@ -502,13 +502,15 @@ function ProceduresBlueprintsSection() {
 function ServiceCatalogSection() {
   const [services, setServices] = useState<DentalService[]>([]);
   const [editingService, setEditingService] = useState<DentalService | null>(null);
+  const [imageUrl, setImageUrl] = useState<string>("");
+  const [uploading, setUploading] = useState(false);
 
   const [createState, createAction, creating] = useActionState(createServiceAction, {
     success: false,
   });
 
   const fetchServices = async () => {
-    const res = await getAllServicesAction();
+    const res = await getAllServicesAction(false); // Fetch all including inactive for admin
     if (res?.success && res.data) setServices((res.data as DentalService[]) || []);
   };
 
@@ -517,16 +519,26 @@ function ServiceCatalogSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createState.success]);
 
+  useEffect(() => {
+    if (editingService) {
+      setImageUrl(editingService.imageUrl || "");
+    } else {
+      setImageUrl("");
+    }
+  }, [editingService]);
+
   const handleUpdateSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingService) return;
 
     const formData = new FormData(e.currentTarget);
+    formData.set("imageUrl", imageUrl);
     const res = await updateServiceAction(editingService.id, formData);
 
     if (res?.success) {
       alert("Service updated!");
       setEditingService(null);
+      setImageUrl("");
       fetchServices();
     } else {
       alert("Error: " + (res?.error || "Unknown error"));
@@ -538,6 +550,38 @@ function ServiceCatalogSection() {
     fetchServices();
   };
 
+  const uploadServiceImage = async (file: File | null) => {
+    if (!file) return;
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+    if (!cloudName || !uploadPreset) {
+      alert("Cloudinary configuration missing.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("upload_preset", uploadPreset);
+
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+        { method: "POST", body: form }
+      );
+      const data = await res.json();
+      if (res.ok && data?.secure_url) {
+        setImageUrl(String(data.secure_url));
+      } else {
+        throw new Error(data?.error?.message || "Upload failed");
+      }
+    } catch (err: any) {
+      alert("Error uploading image: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
@@ -547,14 +591,23 @@ function ServiceCatalogSection() {
           ) : (
             services.map((s) => (
               <div key={s.id} className="p-4 flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="font-extrabold text-slate-900 truncate">{s.name}</p>
-                  <p className="text-xs text-slate-500">
-                    ₱{Number((s as any).price || 0).toLocaleString()} •{" "}
-                    <span className={s.isActive ? "text-emerald-700" : "text-rose-700"}>
-                      {s.isActive ? "Active" : "Inactive"}
-                    </span>
-                  </p>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-12 w-12 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0">
+                    {s.imageUrl ? (
+                      <img src={s.imageUrl} alt={s.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center text-slate-400 text-[10px] font-bold">No Img</div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-extrabold text-slate-900 truncate">{s.name}</p>
+                    <p className="text-xs text-slate-500">
+                      ₱{Number((s as any).price || 0).toLocaleString()} •{" "}
+                      <span className={s.isActive ? "text-emerald-700" : "text-rose-700"}>
+                        {s.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
@@ -598,7 +651,10 @@ function ServiceCatalogSection() {
           {editingService ? (
             <button
               type="button"
-              onClick={() => setEditingService(null)}
+              onClick={() => {
+                setEditingService(null);
+                setImageUrl("");
+              }}
               className="text-xs font-extrabold text-rose-600 hover:underline"
             >
               Cancel
@@ -611,36 +667,75 @@ function ServiceCatalogSection() {
           action={editingService ? undefined : createAction}
           onSubmit={editingService ? handleUpdateSubmit : undefined}
         >
-          <input
-            name="name"
-            placeholder="Service Name (e.g. Braces)"
-            className={inputBase}
-            required
-            defaultValue={editingService?.name || ""}
-            key={`svc-name-${editingService?.id || "new"}`}
-          />
+          <div className="flex flex-col md:flex-row gap-4">
+            {/* Image Preview & Upload */}
+            <div className="shrink-0 space-y-2">
+              <div className="h-32 w-32 md:h-40 md:w-40 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden relative group">
+                {imageUrl ? (
+                  <>
+                    <img src={imageUrl} alt="Preview" className="h-full w-full object-cover" />
+                    <button 
+                      type="button"
+                      onClick={() => setImageUrl("")}
+                      className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 transition flex items-center justify-center font-bold text-xs"
+                    >
+                      Remove
+                    </button>
+                  </>
+                ) : (
+                  <div className="text-center p-4">
+                    <span className="text-2xl">🖼️</span>
+                    <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">No Image</p>
+                  </div>
+                )}
+                {uploading && (
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                    <div className="h-5 w-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                )}
+              </div>
+              <label className="block">
+                <span className="sr-only">Choose service photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => uploadServiceImage(e.target.files?.[0] || null)}
+                  className="block w-full text-[10px] text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer"
+                />
+              </label>
+              <input type="hidden" name="imageUrl" value={imageUrl} />
+            </div>
 
-          <input
-            name="price"
-            type="number"
-            placeholder="Starting Price"
-            className={inputBase}
-            required
-            defaultValue={(editingService as any)?.price ?? ""}
-            key={`svc-price-${editingService?.id || "new"}`}
-          />
+            <div className="flex-1 space-y-3">
+              <input
+                name="name"
+                placeholder="Service Name (e.g. Braces)"
+                className={inputBase}
+                required
+                defaultValue={editingService?.name || ""}
+                key={`svc-name-${editingService?.id || "new"}`}
+              />
 
-          <textarea
-            name="description"
-            placeholder="Public description"
-            className={`${inputBase} h-24`}
-            defaultValue={(editingService as any)?.description || ""}
-            key={`svc-desc-${editingService?.id || "new"}`}
-          />
+              <input
+                name="price"
+                type="number"
+                placeholder="Starting Price"
+                className={inputBase}
+                required
+                defaultValue={(editingService as any)?.price ?? ""}
+                key={`svc-price-${editingService?.id || "new"}`}
+              />
 
-          {/* Required by serviceSchema in your service-actions */}
-          <input type="hidden" name="category" value="general" />
-          <input type="hidden" name="durationMinutes" value="30" />
+              <textarea
+                name="description"
+                placeholder="Public description"
+                className={`${inputBase} h-20`}
+                defaultValue={(editingService as any)?.description || ""}
+                key={`svc-desc-${editingService?.id || "new"}`}
+              />
+            </div>
+          </div>
+
           <input
             type="hidden"
             name="isActive"
@@ -649,14 +744,14 @@ function ServiceCatalogSection() {
 
           <button
             type="submit"
-            disabled={creating}
+            disabled={creating || uploading}
             className={`w-full rounded-xl py-2.5 font-extrabold text-sm transition ${
-              creating
+              creating || uploading
                 ? "bg-slate-200 text-slate-500 cursor-not-allowed"
                 : "bg-teal-700 text-white hover:bg-teal-800"
             }`}
           >
-            {creating
+            {uploading ? "Uploading Image..." : creating
               ? editingService
                 ? "Updating…"
                 : "Saving…"
