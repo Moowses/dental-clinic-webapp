@@ -40,7 +40,7 @@ type Msg = {
   id: string;
   role: "user" | "assistant";
   text?: string;
-  render?: "services";
+  render?: "services" | "servicesPrices";
   quick?: Quick[];
 };
 
@@ -74,6 +74,14 @@ function findFaqAnswer(message: string) {
     if (normalized.includes(normalize(faq.q))) return faq.a;
   }
   return null;
+}
+
+function formatPeso(amount?: number | null) {
+  if (typeof amount !== "number" || Number.isNaN(amount)) return "Price varies";
+  return `Php ${amount.toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export default function ChatbotWidget() {
@@ -319,6 +327,66 @@ export default function ChatbotWidget() {
     );
   }, [procLoading, procError, procedures]);
 
+  const servicesPriceContent = useMemo(() => {
+    if (procLoading) {
+      return (
+        <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          Loading servicesâ€¦
+        </div>
+      );
+    }
+
+    if (procError) {
+      return (
+        <div className="mt-2 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="font-bold">Couldnâ€™t load services</div>
+          <div className="mt-1">{procError}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => handleQuick("retryServices")}
+              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuick("openBooking")}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+            >
+              Book appointment
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (!procedures.length) {
+      return (
+        <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          No services available right now.
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-2 rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="text-sm font-extrabold text-slate-900">Services & Base Prices</div>
+        <div className="mt-3 space-y-2">
+          {procedures.map((p) => (
+            <div key={p.id} className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-semibold text-slate-900">{p.name || "Service"}</span>
+              <span className="text-slate-700">{formatPeso((p as any)?.basePrice ?? null)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 text-[11px] text-slate-500">
+          Note: Prices vary depending on the service. I can help estimate after consultation.
+        </div>
+      </div>
+    );
+  }, [procLoading, procError, procedures]);
+
   async function handleQuick(action: QuickAction) {
     switch (action) {
       case "showServices": {
@@ -545,6 +613,21 @@ export default function ChatbotWidget() {
       }
 
       // Local routing to avoid human error
+      if (
+        lower.includes("price") ||
+        lower.includes("cost") ||
+        lower.includes("fee") ||
+        lower.includes("how much") ||
+        lower.includes("hm")
+      ) {
+        await ensureProceduresLoaded(false);
+        pushAssistant(
+          "Here are our services with base prices. Prices vary depending on the service. I can help estimate after consultation.",
+          { render: "servicesPrices" }
+        );
+        return;
+      }
+
       if (lower.includes("service") || lower.includes("services") || lower.includes("procedure")) {
         await handleQuick("showServices");
         return;
@@ -656,6 +739,7 @@ export default function ChatbotWidget() {
                       ) : null}
 
                       {m.render === "services" ? servicesContent : null}
+                      {m.render === "servicesPrices" ? servicesPriceContent : null}
 
                       {m.quick?.length ? (
                         <div className="mt-2 flex flex-wrap gap-2">
