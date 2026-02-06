@@ -233,14 +233,13 @@ export default function InventoryPanel() {
       <div className="p-4 md:p-6 overflow-hidden flex flex-col">
         <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-inner flex flex-col">
           <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-            <table className="w-full text-left border-collapse min-w-[1000px]">
+            <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="bg-slate-50 sticky top-0 z-10">
                 <tr className="text-[10px] font-black uppercase tracking-widest text-slate-500 border-b border-slate-200">
-                  <th className="px-4 py-4">Item ID</th>
                   <th className="px-4 py-4">Item</th>
                   <th className="px-4 py-4">Category</th>
                   <th className="px-4 py-4">Stock</th>
-                  <th className="px-4 py-4">Unit</th>
+                  <th className="px-4 py-4">Min Threshold</th>
                   <th className="px-4 py-4">Status</th>
                   <th className="px-4 py-4 text-right">Actions</th>
                 </tr>
@@ -249,7 +248,7 @@ export default function InventoryPanel() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td className="px-4 py-12 text-sm text-slate-400 text-center font-medium" colSpan={7}>
+                    <td className="px-4 py-12 text-sm text-slate-400 text-center font-medium" colSpan={6}>
                       <div className="flex flex-col items-center gap-2">
                         <div className="h-5 w-5 border-2 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
                         Loading inventory...
@@ -258,7 +257,7 @@ export default function InventoryPanel() {
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-12 text-sm text-slate-400 text-center italic" colSpan={7}>
+                    <td className="px-4 py-12 text-sm text-slate-400 text-center italic" colSpan={6}>
                       No inventory items found matching your search.
                     </td>
                   </tr>
@@ -274,22 +273,23 @@ export default function InventoryPanel() {
                       : "bg-emerald-50 text-emerald-700 border-emerald-100";
                     return (
                       <tr key={item.id} className="text-sm text-slate-800 hover:bg-slate-50/50 transition-colors group">
-                        <td className="px-4 py-3 font-mono text-[11px] text-slate-400">{item.itemCode || "--"}</td>
                         <td className="px-4 py-3">
-                          <div className="flex flex-col">
-                            <span className="font-extrabold text-slate-900">{item.name || "--"}</span>
-                            <span className="text-[10px] text-slate-400 uppercase tracking-tighter">Batch: {item.batchNumber || "--"}</span>
-                          </div>
+                          <span className="font-extrabold text-slate-900">{item.name || "--"}</span>
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-xs font-bold text-slate-600">{getCategoryLabel(item.category)}</span>
                         </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={low ? "font-black text-rose-600 bg-rose-50 px-2 py-1 rounded-lg" : "font-black text-slate-900"}>
-                            {Number(item.stock ?? 0)}
-                          </span>
+                        <td className="px-4 py-3">
+                          <div className="flex items-baseline gap-1">
+                            <span className={low ? "font-black text-rose-600" : "font-black text-slate-900"}>
+                              {Number(item.stock ?? 0)}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">{item.unit}</span>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-500 font-medium">{item.unit || "--"}</td>
+                        <td className="px-4 py-3 text-xs font-medium text-slate-500">
+                          {Number(item.minThreshold ?? 0)}
+                        </td>
                         <td className="px-4 py-3">
                           <span
                             className={[
@@ -307,14 +307,14 @@ export default function InventoryPanel() {
                               className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-black text-slate-600 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all uppercase tracking-tight"
                               disabled={pending}
                             >
-                              Stock Out
+                              Out
                             </button>
                             <button
                               onClick={() => setAdjustingStock({ item, mode: "in" })}
                               className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-[10px] font-black text-slate-600 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all uppercase tracking-tight"
                               disabled={pending}
                             >
-                              Stock In
+                              In
                             </button>
                             <button
                               onClick={() => setOpenEdit(item)}
