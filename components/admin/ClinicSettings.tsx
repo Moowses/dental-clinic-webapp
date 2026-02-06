@@ -7,6 +7,8 @@ import {
   getClinicSettingsAction,
   updateClinicSettingsAction,
 } from "@/app/actions/clinic-actions";
+import { syncPatientIdCounterAction } from "@/app/actions/patient-admin-actions";
+import { useAuth } from "@/lib/hooks/useAuth";
 import type { ClinicSettings } from "@/lib/types/clinic";
 
 type OperatingHoursDay = {
@@ -52,10 +54,16 @@ function buildDefault(): ClinicSettings {
 }
 
 export default function ClinicSettings() {
+  const { role, user } = useAuth();
+  const [token, setToken] = useState("");
   const [settings, setSettings] = useState<ClinicSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [banner, setBanner] = useState<{ type: "ok" | "err"; msg: string } | null>(
+    null
+  );
+  const [syncingCounter, setSyncingCounter] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ type: "ok" | "err"; msg: string } | null>(
     null
   );
 
@@ -112,6 +120,11 @@ export default function ClinicSettings() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    user.getIdToken().then(setToken);
+  }, [user]);
+
   const daysToRender = useMemo<DayKey[]>(() => {
     if (!settings?.operatingHours) return [];
     return DAY_ORDER.filter((d) => settings.operatingHours[d]);
@@ -151,6 +164,33 @@ export default function ClinicSettings() {
     }
   };
 
+  const handleSyncCounter = async () => {
+    if (!token) {
+      setSyncMsg({ type: "err", msg: "Unauthorized: No token available." });
+      return;
+    }
+    setSyncingCounter(true);
+    setSyncMsg(null);
+    try {
+      const res = await syncPatientIdCounterAction({ idToken: token });
+      if (res?.success) {
+        const year = res.year ?? new Date().getFullYear();
+        const seq = res.seq ?? 0;
+        setSyncMsg({
+          type: "ok",
+          msg: `Counter synced to ${year}-${String(seq).padStart(4, "0")}.`,
+        });
+      } else {
+        setSyncMsg({ type: "err", msg: res?.error || "Failed to sync counter." });
+      }
+    } catch (e) {
+      console.error(e);
+      setSyncMsg({ type: "err", msg: "Failed to sync counter." });
+    } finally {
+      setSyncingCounter(false);
+    }
+  };
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
       <div className="flex items-end justify-between gap-3">
@@ -174,6 +214,42 @@ export default function ClinicSettings() {
           {isSaving ? "Saving..." : "Save Changes"}
         </button>
       </div>
+
+      {role === "admin" && (
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-extrabold text-slate-900">
+                Check Data and System Integrity
+              </p>
+              <p className="text-xs text-slate-500">
+                Sync the Patient ID counter to the latest recorded ID.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleSyncCounter}
+              disabled={syncingCounter}
+              className={`px-4 py-2 rounded-xl font-extrabold text-xs transition ${
+                syncingCounter
+                  ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                  : "bg-white border border-slate-200 text-slate-900 hover:bg-slate-100"
+              }`}
+            >
+              {syncingCounter ? "Checking..." : "Check Data and System Integrity"}
+            </button>
+          </div>
+          {syncMsg && (
+            <p
+              className={`mt-3 text-xs font-extrabold ${
+                syncMsg.type === "ok" ? "text-emerald-700" : "text-rose-600"
+              }`}
+            >
+              {syncMsg.msg}
+            </p>
+          )}
+        </div>
+      )}
 
       {banner && (
         <div

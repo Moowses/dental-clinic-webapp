@@ -96,7 +96,7 @@ function AppointmentsTable({
         <button
           type="button"
           onClick={onAddAppointment}
-          className="mt-5 inline-flex rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+          className="mt-5 inline-flex w-fit rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
           style={{ backgroundColor: BRAND }}
         >
           Book your first appointment
@@ -107,7 +107,7 @@ function AppointmentsTable({
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+      <div className="flex flex-col gap-3 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-extrabold text-slate-900">My Appointment History</h3>
           <p className="mt-1 text-xs text-slate-500">Review your bookings and appointment status.</p>
@@ -116,7 +116,7 @@ function AppointmentsTable({
         <button
           type="button"
           onClick={onAddAppointment}
-          className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+          className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
           style={{ backgroundColor: BRAND }}
         >
           <span className="text-lg leading-none">+</span>
@@ -124,7 +124,49 @@ function AppointmentsTable({
         </button>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="md:hidden p-4 space-y-3">
+        {appointments.map((appt) => {
+          const service = String((appt as any).serviceType || "");
+          const date = String((appt as any).date || "");
+          const time = formatTime12h(String((appt as any).time || ""));
+          const id = String((appt as any).id || "");
+          const status = String((appt as any).status || "");
+
+          return (
+            <div key={id} className="rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-extrabold text-slate-900">{service}</p>
+                  <p className="text-xs text-slate-500">Ref: {id}</p>
+                </div>
+                <StatusBadge status={status} />
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                <div>
+                  <div className="font-extrabold text-slate-500">Date</div>
+                  <div className="text-slate-800">{date}</div>
+                </div>
+                <div>
+                  <div className="font-extrabold text-slate-500">Time</div>
+                  <div className="text-slate-800">{time}</div>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <AppointmentRowActions
+                  appointment={appt}
+                  onView={() => onOpenModal(appt, "details")}
+                  onTransactions={() => onOpenModal(appt, "transactions")}
+                  onCancel={() => onCancel(appt)}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs font-bold text-slate-600">
             <tr>
@@ -723,37 +765,51 @@ const [dentistNameMap, setDentistNameMap] = useState<Record<string, string>>({})
             </div>
 
             <div className="p-3">
-              <button
-                onClick={() => setActive("dashboard")}
-                className={`w-full rounded-xl px-4 py-3 text-left text-sm font-bold transition ${
-                  active === "dashboard" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                Dashboard
-              </button>
+              <div className="grid grid-cols-4 gap-2 lg:block">
                 <button
-                onClick={() => setActive("transactions")}
-                className={`mt-2 w-full rounded-xl px-4 py-3 text-left text-sm font-bold transition ${
-                  active === "transactions" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                Transactions
-              </button>
+                  onClick={() => setActive("dashboard")}
+                  className={`rounded-xl px-3 py-2 text-center text-xs font-bold transition lg:w-full lg:px-4 lg:py-3 lg:text-left lg:text-sm ${
+                    active === "dashboard"
+                      ? "bg-slate-900 text-white"
+                      : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Dashboard
+                </button>
+                <button
+                  onClick={() => setActive("transactions")}
+                  className={`rounded-xl px-3 py-2 text-center text-xs font-bold transition lg:mt-2 lg:w-full lg:px-4 lg:py-3 lg:text-left lg:text-sm ${
+                    active === "transactions"
+                      ? "bg-slate-900 text-white"
+                      : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Transactions
+                </button>
 
-              <button
-                onClick={() => setActive("settings")}
-                className={`mt-2 w-full rounded-xl px-4 py-3 text-left text-sm font-bold transition ${
-                  active === "settings" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                Account Settings
-              </button>
+                <button
+                  onClick={() => setActive("settings")}
+                  className={`rounded-xl px-3 py-2 text-center text-xs font-bold transition lg:mt-2 lg:w-full lg:px-4 lg:py-3 lg:text-left lg:text-sm ${
+                    active === "settings"
+                      ? "bg-slate-900 text-white"
+                      : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Settings
+                </button>
+                <button
+                  onClick={logout}
+                  className="rounded-xl px-3 py-2 text-center text-xs font-bold text-red-600 hover:bg-red-50 lg:hidden"
+                >
+                  Logout
+                </button>
+              </div>
 
               <div className="my-3 border-t border-slate-100" />
 
               <button
                 onClick={logout}
-                className="w-full rounded-xl px-4 py-3 text-left text-sm font-bold text-red-600 hover:bg-red-50"
+                className="hidden w-full rounded-xl px-4 py-3 text-left text-sm font-bold text-red-600 hover:bg-red-50 lg:block"
               >
                 Logout
               </button>
@@ -785,36 +841,29 @@ const [dentistNameMap, setDentistNameMap] = useState<Record<string, string>>({})
                     </div>
                   </div>
 
-                  <div className="flex gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setOpenBooking(true)}
-                      className="rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-900 hover:bg-slate-100"
-                    >
-                      Book Appointment
-                    </button>
-                  </div>
+                  <div className="flex gap-3" />
                 </div>
               </div>
 
               <div className="p-6">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                    <p className="text-xs font-bold text-slate-500">Upcoming (Pending)</p>
-                    <p className="mt-2 text-2xl font-extrabold text-slate-900">
-                      {appointments.filter((a) => String((a as any).status).toLowerCase() === "pending").length}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                    <p className="text-xs font-bold text-slate-500">Total Bookings</p>
-                    <p className="mt-2 text-2xl font-extrabold text-slate-900">{appointments.length}</p>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                    <p className="text-xs font-bold text-slate-500">Role</p>
-                    <p className="mt-2 text-sm font-extrabold text-slate-900">{normalizedRole || "client"}</p>
-                    <p className="mt-1 text-xs text-slate-500">Active session</p>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-[11px] font-bold text-slate-500">Upcoming</p>
+                      <p className="mt-1 text-lg font-extrabold text-slate-900">
+                        {appointments.filter((a) => String((a as any).status).toLowerCase() === "pending").length}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold text-slate-500">Bookings</p>
+                      <p className="mt-1 text-lg font-extrabold text-slate-900">{appointments.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-bold text-slate-500">Role</p>
+                      <p className="mt-1 text-xs font-extrabold uppercase tracking-wide text-slate-900">
+                        {normalizedRole || "client"}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>

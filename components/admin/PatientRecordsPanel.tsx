@@ -351,6 +351,8 @@ function PatientEditModal({
   const p = form.personal_information;
   const c = form.contact_information;
   const m = form.medical_history;
+  const sexValue = String(p.sex || "").toLowerCase();
+  const showWomenOnly = sexValue === "female";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -449,7 +451,7 @@ function PatientEditModal({
                   </div>
                   <div>
                     <label className={labelSm}>Sex</label>
-                    <input
+                    <select
                       className={inputBase}
                       value={p.sex}
                       onChange={(e) =>
@@ -458,7 +460,11 @@ function PatientEditModal({
                           personal_information: { ...p, sex: e.target.value },
                         })
                       }
-                    />
+                    >
+                      <option value="">—</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -482,8 +488,12 @@ function PatientEditModal({
                   <div>
                     <label className={labelSm}>Mobile No *</label>
                     <input
+                      type="tel"
+                      inputMode="numeric"
                       className={inputBase}
                       value={c.mobile_no}
+                      maxLength={11}
+                      placeholder="+62-926 114-21xx"
                       onChange={(e) =>
                         setForm({
                           ...form,
@@ -564,6 +574,73 @@ function PatientEditModal({
                     />
                   </div>
                 </div>
+                {showWomenOnly && (
+                  <div className="mt-4">
+                    <p className={labelSm}>Women Only</p>
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-slate-700">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(m.women_only?.is_pregnant)}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              medical_history: {
+                                ...m,
+                                women_only: {
+                                  ...m.women_only,
+                                  is_pregnant: e.target.checked,
+                                },
+                              },
+                            })
+                          }
+                          className={checkBox}
+                        />
+                        Pregnant
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(m.women_only?.is_nursing)}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              medical_history: {
+                                ...m,
+                                women_only: {
+                                  ...m.women_only,
+                                  is_nursing: e.target.checked,
+                                },
+                              },
+                            })
+                          }
+                          className={checkBox}
+                        />
+                        Nursing
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(m.women_only?.taking_birth_control)}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              medical_history: {
+                                ...m,
+                                women_only: {
+                                  ...m.women_only,
+                                  taking_birth_control: e.target.checked,
+                                },
+                              },
+                            })
+                          }
+                          className={checkBox}
+                        />
+                        Birth Control Pills
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className={sectionCard}>
@@ -730,11 +807,13 @@ function PatientEditModal({
 export default function PatientRecordsPanel() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
+  const [filter, setFilter] = useState<"all" | "registered" | "unregistered">("registered");
   const [showDropdown, setShowDropdown] = useState(false);
   const [searching, setSearching] = useState(false);
 
   const [directory, setDirectory] = useState<UserProfile[]>([]);
   const [dirLoading, setDirLoading] = useState(true);
+  const [patientIdMap, setPatientIdMap] = useState<Record<string, string>>({});
 
   const [viewingUid, setViewingUid] = useState<string | null>(null);
   const [editingUid, setEditingUid] = useState<string | null>(null);
@@ -742,7 +821,22 @@ export default function PatientRecordsPanel() {
   useEffect(() => {
     setDirLoading(true);
     getPatientListAction().then((res: any) => {
-      if (res?.success) setDirectory(res.data || []);
+      if (res?.success) {
+        const list = res.data || [];
+        setDirectory(list);
+        Promise.all(
+          list.map(async (u: any) => {
+            const r = await getPatientRecord(u.uid);
+            return { uid: u.uid, patientId: (r as any)?.data?.patientId };
+          })
+        ).then((entries) => {
+          const next: Record<string, string> = {};
+          entries.forEach((e) => {
+            if (e.patientId) next[e.uid] = String(e.patientId);
+          });
+          setPatientIdMap(next);
+        });
+      }
       setDirLoading(false);
     });
   }, []);
@@ -756,7 +850,17 @@ export default function PatientRecordsPanel() {
     const t = setTimeout(async () => {
       setSearching(true);
       const res = await searchPatients(searchQuery);
-      if (res.success) setSearchResults(res.data || []);
+      const base = res.success ? (res.data || []) : [];
+      const q = searchQuery.trim().toLowerCase();
+      const byId = directory.filter((u) => {
+        const pid = String(patientIdMap[u.uid] || "").toLowerCase();
+        return pid && pid.includes(q);
+      });
+      const merged = [...base, ...byId].reduce((acc: UserProfile[], u: any) => {
+        if (!acc.some((x) => x.uid === u.uid)) acc.push(u);
+        return acc;
+      }, []);
+      setSearchResults(merged);
       setShowDropdown(true);
       setSearching(false);
     }, 250);
@@ -765,9 +869,16 @@ export default function PatientRecordsPanel() {
   }, [searchQuery]);
 
   const tableRows = useMemo(() => {
-    if (searchQuery.trim()) return searchResults;
-    return directory;
-  }, [searchQuery, searchResults, directory]);
+    const base = searchQuery.trim() ? searchResults : directory;
+    if (filter === "all") return base;
+    const wantRegistered = filter === "registered";
+    return base.filter((u) => {
+      const hasName = Boolean(u.displayName);
+      const isReg = Boolean((u as any)?.isProfileComplete || (u as any)?.isVerified || hasName);
+      return wantRegistered ? isReg : !isReg;
+    });
+  }, [searchQuery, searchResults, directory, filter]);
+
 
   return (
     <Card title="Patient Search & Records" subtitle="Search, view, and update patient medical history (clinical)">
@@ -790,12 +901,15 @@ export default function PatientRecordsPanel() {
                     key={u.uid}
                     className="p-3 hover:bg-slate-50 cursor-pointer text-sm border-b border-slate-100 last:border-0"
                     onClick={() => {
-                      setSearchQuery(u.displayName || u.email);
+                      setSearchQuery(u.displayName || u.email || "");
                       setShowDropdown(false);
                     }}
                   >
                     <div className="font-bold text-slate-900">{u.displayName || "No Name"}</div>
-                    <div className="text-xs text-slate-500">{u.email}</div>
+                    <div className="text-xs text-slate-500">
+                      {u.email}
+                      {patientIdMap[u.uid] ? ` • ${patientIdMap[u.uid]}` : ""}
+                    </div>
                   </li>
                 ))}
             </ul>
@@ -803,23 +917,35 @@ export default function PatientRecordsPanel() {
         </div>
 
         <div className="pt-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-extrabold text-slate-700">
               {searchQuery.trim() ? "Search Results" : "Patient Directory (Staff)"}
             </p>
-            <p className="text-[11px] text-slate-500">
-              {searchQuery.trim()
-                ? `${tableRows.length} result(s)`
-                : dirLoading
-                ? "Loading directory..."
-                : `${tableRows.length} patient(s)`}
-            </p>
+            <div className="flex items-center gap-2">
+              <div className="text-[11px] text-slate-500">
+                {searchQuery.trim()
+                  ? `${tableRows.length} result(s)`
+                  : dirLoading
+                  ? "Loading directory..."
+                  : `${tableRows.length} patient(s)`}
+              </div>
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as "all" | "registered" | "unregistered")}
+                className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-extrabold text-slate-700"
+              >
+                <option value="all">All</option>
+                <option value="registered">Registered</option>
+                <option value="unregistered">Unregistered (no name)</option>
+              </select>
+            </div>
           </div>
 
           <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
                 <tr className="text-left text-[11px] uppercase tracking-widest text-slate-500">
+                  <th className="p-3">Patient ID</th>
                   <th className="p-3">Name</th>
                   <th className="p-3 hidden md:table-cell">Email</th>
                   <th className="p-3 text-right">Action</th>
@@ -828,19 +954,22 @@ export default function PatientRecordsPanel() {
                 <tbody>
                   {dirLoading && !searchQuery.trim() ? (
                     <tr>
-                      <td className="p-3 text-slate-500" colSpan={3}>
+                        <td className="p-3 text-slate-500" colSpan={4}>
                         Loading patient directory...
                       </td>
                     </tr>
                   ) : tableRows.length === 0 ? (
                     <tr>
-                      <td className="p-3 text-slate-500" colSpan={3}>
+                        <td className="p-3 text-slate-500" colSpan={4}>
                         {searchQuery.trim() ? "No matching patients found." : "No patients found in directory."}
                       </td>
                     </tr>
                   ) : (
                     tableRows.map((u) => (
                       <tr key={u.uid} className="border-t border-slate-100">
+                        <td className="p-3 text-slate-600 font-mono">
+                          {patientIdMap[u.uid] || "—"}
+                        </td>
                         <td className="p-3">
                           <div className="font-bold text-slate-900">{u.displayName || "No Name"}</div>
                           <div className="text-xs text-slate-500 md:hidden">{u.email}</div>

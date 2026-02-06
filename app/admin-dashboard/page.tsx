@@ -69,7 +69,10 @@ export default function AdminDashboardPage() {
 
   const canSeeAppointments = isAdmin || isFrontDesk;
   const canSeeBilling = isAdmin || isFrontDesk;
-  const canSeeInventory = isAdmin || isFrontDesk;
+  const canSeeInventory = isAdmin;
+  const canSeeReports = isAdmin;
+  const canSeeAnalytics = isAdmin;
+  const canSeeTreatmentRecords = isAdmin;
 
   // ✅ NEW
   const canSeeClinicSettings = isAdmin || isFrontDesk;
@@ -90,21 +93,25 @@ export default function AdminDashboardPage() {
   }, [user, loading, router]);
 
   useEffect(() => {
-    if (!loading && user) {
-      if (tab === "appointments" && !canSeeAppointments) setTab("dashboard");
-      if (tab === "billing" && !canSeeBilling) setTab("dashboard");
-      if (tab === "inventory" && !canSeeInventory) setTab("dashboard");
-      if (tab === "clinic-settings" && !canSeeClinicSettings) setTab("dashboard"); // ✅ NEW
-    }
-  }, [
-    tab,
-    canSeeAppointments,
-    canSeeBilling,
-    canSeeInventory,
-    canSeeClinicSettings,
-    loading,
-    user,
-  ]);
+      if (!loading && user) {
+        if (tab === "appointments" && !canSeeAppointments) setTab("dashboard");
+        if (tab === "billing" && !canSeeBilling) setTab("dashboard");
+        if (tab === "inventory" && !canSeeInventory) setTab("dashboard");
+        if (tab === "reports" && !canSeeReports) setTab("dashboard");
+        if (tab === "treatment-records" && !canSeeTreatmentRecords) setTab("dashboard");
+        if (tab === "clinic-settings" && !canSeeClinicSettings) setTab("dashboard"); // ✅ NEW
+      }
+    }, [
+      tab,
+      canSeeAppointments,
+      canSeeBilling,
+      canSeeInventory,
+      canSeeReports,
+      canSeeTreatmentRecords,
+      canSeeClinicSettings,
+      loading,
+      user,
+    ]);
 
   // Clinic overview metrics
   useEffect(() => {
@@ -174,9 +181,11 @@ export default function AdminDashboardPage() {
           }
         }
 
-        const invRes = await getInventory(true);
-        const items =
-          invRes?.success && Array.isArray(invRes.data) ? invRes.data : [];
+        let items: any[] = [];
+        if (isAdmin) {
+          const invRes = await getInventory(true);
+          items = invRes?.success && Array.isArray(invRes.data) ? invRes.data : [];
+        }
 
         const getThreshold = (it: any) => {
           const t =
@@ -367,16 +376,18 @@ export default function AdminDashboardPage() {
                 </button>
               )}
 
-              <button
-                className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
-                  tab === "reports"
-                    ? "bg-slate-900 text-white"
-                    : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
-                }`}
-                onClick={() => setTab("reports")}
-              >
-                Reports
-              </button>
+              {canSeeReports && (
+                <button
+                  className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
+                    tab === "reports"
+                      ? "bg-slate-900 text-white"
+                      : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                  }`}
+                  onClick={() => setTab("reports")}
+                >
+                  Reports
+                </button>
+              )}
 
               <button
                 className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
@@ -388,16 +399,18 @@ export default function AdminDashboardPage() {
               >
                 Patient Records
               </button>
-              <button
-                className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
-                  tab === "treatment-records"
-                    ? "bg-slate-900 text-white"
-                    : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
-                }`}
-                onClick={() => setTab("treatment-records")}
-              >
-                Treatment Records
-              </button>
+              {canSeeTreatmentRecords && (
+                <button
+                  className={`w-full text-left px-4 py-3 rounded-xl font-extrabold ${
+                    tab === "treatment-records"
+                      ? "bg-slate-900 text-white"
+                      : "bg-white border border-slate-200 hover:bg-slate-50 text-slate-900"
+                  }`}
+                  onClick={() => setTab("treatment-records")}
+                >
+                  Treatment Records
+                </button>
+              )}
 
               {isAdmin && (
                 <>
@@ -560,39 +573,36 @@ export default function AdminDashboardPage() {
                         </div>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={goInventory}
-                        disabled={!canSeeInventory}
-                        className={`text-left rounded-2xl border border-slate-200 bg-white shadow-sm transition p-5 ${
-                          canSeeInventory
-                            ? "hover:shadow-md"
-                            : "opacity-60 cursor-not-allowed"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-extrabold text-slate-600">
-                              Low Stock Items
-                            </p>
-                            <p className="mt-3 text-4xl font-extrabold text-slate-900">
-                              {clinicOverview.lowStockItems}
-                            </p>
-                            <p className="mt-2 text-xs text-slate-500">
-                              Click to open inventory
-                            </p>
+                      {canSeeInventory && (
+                        <button
+                          type="button"
+                          onClick={goInventory}
+                          className="text-left rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition p-5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-extrabold text-slate-600">
+                                Low Stock Items
+                              </p>
+                              <p className="mt-3 text-4xl font-extrabold text-slate-900">
+                                {clinicOverview.lowStockItems}
+                              </p>
+                              <p className="mt-2 text-xs text-slate-500">
+                                Click to open inventory
+                              </p>
+                            </div>
+                            <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                              <span className="text-red-700">⚠️</span>
+                            </div>
                           </div>
-                          <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
-                            <span className="text-red-700">⚠️</span>
-                          </div>
-                        </div>
-                      </button>
+                        </button>
+                      )}
                     </div>
                   </section>
                 )}
 
                 {isDentist && <DentistSchedulePanel />}
-                {(isAdmin || isFrontDesk) && <DashboardAnalyticsPanel />}
+                {canSeeAnalytics && <DashboardAnalyticsPanel />}
               </div>
             )}
 
@@ -693,7 +703,7 @@ export default function AdminDashboardPage() {
             )}
 
             {/* Reports */}
-            {tab === "reports" && (isAdmin || isFrontDesk) && (
+            {tab === "reports" && canSeeReports && (
               <div className="space-y-6">
                 <ReportsPanel />
               </div>
@@ -728,7 +738,7 @@ export default function AdminDashboardPage() {
               )}
 
             {tab === "patients" && <PatientRecordsPanel />}
-            {tab === "treatment-records" && <TreatmentRecordsPanel />}
+            {tab === "treatment-records" && canSeeTreatmentRecords && <TreatmentRecordsPanel />}
             {tab === "staff" && isAdmin && <StaffHRPanel />}
             {tab === "procedures" && isAdmin && <ProceduresPanel />}
 

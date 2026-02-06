@@ -5,6 +5,7 @@ import {
   setDoc,
   serverTimestamp,
   Timestamp,
+  runTransaction,
 } from "firebase/firestore";
 import { PatientRecord } from "../types/patient";
 import { patientRecordSchema } from "../validations/auth";
@@ -15,6 +16,79 @@ import {
 import { z } from "zod";
 
 const COLLECTION_NAME = "patient_records";
+const COUNTER_DOC = "patientId";
+
+function formatPatientId(year: number, seq: number) {
+  return `${year}-${String(seq).padStart(4, "0")}`;
+}
+
+export async function assignPatientId(uid: string) {
+  try {
+    const docRef = doc(db, COLLECTION_NAME, uid);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data: any = snap.data();
+      if (data?.patientId) return { success: true, patientId: data.patientId };
+    }
+
+    const nowYear = new Date().getFullYear();
+    const counterRef = doc(db, "counters", COUNTER_DOC);
+
+    const nextId = await runTransaction(db, async (tx) => {
+      const counterSnap = await tx.get(counterRef);
+      let year = nowYear;
+      let seq = 0;
+
+      if (counterSnap.exists()) {
+        const data: any = counterSnap.data();
+        const storedYear = Number(data?.year || 0);
+        const storedSeq = Number(data?.seq || 0);
+        if (storedYear === nowYear) {
+          year = storedYear;
+          seq = Number.isFinite(storedSeq) ? storedSeq : 0;
+        }
+      }
+
+      const nextSeq = seq + 1;
+      const pid = formatPatientId(year, nextSeq);
+
+      tx.set(
+        counterRef,
+        { year, seq: nextSeq, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+
+      tx.set(
+        docRef,
+        { uid, patientId: pid, updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+
+      return pid;
+    });
+
+    return { success: true, patientId: nextId };
+  } catch (error) {
+    console.error("Error assigning patient ID:", error);
+    return { success: false, error: "Failed to assign patient ID" };
+  }
+}
+
+export async function resetPatientIdCounter(year?: number) {
+  try {
+    const y = Number(year) || new Date().getFullYear();
+    const counterRef = doc(db, "counters", COUNTER_DOC);
+    await setDoc(
+      counterRef,
+      { year: y, seq: 0, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+    return { success: true };
+  } catch (error) {
+    console.error("Error resetting patient ID counter:", error);
+    return { success: false, error: "Failed to reset counter" };
+  }
+}
 
 export async function getPatientRecord(uid: string) {
   try {

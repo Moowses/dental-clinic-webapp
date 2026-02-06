@@ -41,6 +41,16 @@ export async function signUp(credentials: z.infer<typeof signUpSchema>) {
     
     // Create Firestore Document
     await createUserDocument(userCredential.user.uid, email, "client");
+    const idToken = await userCredential.user.getIdToken();
+    const res = await fetch("/api/patient-id/assign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body?.success) {
+      throw new Error(body?.error || "Failed to assign patient ID");
+    }
 
     // Send verification email immediately after signup
     if (userCredential.user) {

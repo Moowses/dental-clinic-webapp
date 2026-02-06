@@ -382,7 +382,7 @@ export default function HomePage() {
             <div className="mt-10 text-center">
               <Link
                 href="/services"
-                className="inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
+                className="inline-flex w-fit items-center justify-center rounded-full px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
                 style={{ backgroundColor: BRAND }}
               >
                 View All Services

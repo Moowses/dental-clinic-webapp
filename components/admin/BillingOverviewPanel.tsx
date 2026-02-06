@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getAllBillingAction } from "@/app/actions/billing-actions";
 import { getUserProfile } from "@/lib/services/user-service";
+import { getPatientRecord } from "@/lib/services/patient-service";
 import type { UserProfile } from "@/lib/types/user";
 
 type FilterKey = "all" | "unpaid" | "paid";
@@ -28,6 +29,7 @@ type AnyBill = {
 
 type PatientRow = {
   patientId: string;
+  patientCode: string;
   patientName: string;
   billsCount: number;
   paidBills: number;
@@ -51,18 +53,6 @@ function toDate(input: any): Date | null {
   } catch {
     return null;
   }
-}
-
-function fmtDateMs(ms: number) {
-  if (!ms) return "—";
-  const d = new Date(ms);
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function billTotals(bill: AnyBill) {
@@ -130,10 +120,14 @@ export default function BillingOverviewPanel({
         );
 
         const profileMap = new Map<string, UserProfile>();
+        const patientCodeMap = new Map<string, string>();
         await Promise.all(
           patientIds.map(async (pid) => {
             const pr = await getUserProfile(pid);
             if (pr?.success && pr.data) profileMap.set(pid, pr.data as any);
+            const record = await getPatientRecord(pid);
+            const code = (record as any)?.data?.patientId;
+            if (code) patientCodeMap.set(pid, String(code));
           })
         );
 
@@ -143,6 +137,7 @@ export default function BillingOverviewPanel({
           if (!pid) continue;
 
           const profile: any = profileMap.get(pid);
+          const patientCode = patientCodeMap.get(pid) || "â€”";
           const name =
             profile?.displayName ||
             profile?.fullName ||
@@ -157,6 +152,7 @@ export default function BillingOverviewPanel({
           if (!prev) {
             agg.set(pid, {
               patientId: pid,
+              patientCode,
               patientName: name,
               billsCount: 1,
               paidBills: t.isPaid ? 1 : 0,
@@ -166,6 +162,7 @@ export default function BillingOverviewPanel({
               lastActivityMs: last,
             });
           } else {
+            if (!prev.patientCode || prev.patientCode === "â€”") prev.patientCode = patientCode;
             prev.billsCount += 1;
             prev.paidBills += t.isPaid ? 1 : 0;
             prev.unpaidBills += t.isUnpaid ? 1 : 0;
@@ -259,13 +256,13 @@ export default function BillingOverviewPanel({
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr className="text-xs font-extrabold text-slate-600">
+                  <th className="p-3">Patient ID</th>
                   <th className="p-3">Patient name</th>
                   <th className="p-3">Bill</th>
                   <th className="p-3">Paid bills</th>
                   <th className="p-3">Remaining</th>
                   <th className="p-3">Total</th>
                   <th className="p-3">Unpaid</th>
-                  <th className="p-3">Last activity</th>
                   <th className="p-3 text-right">Action</th>
                 </tr>
               </thead>
@@ -280,11 +277,11 @@ export default function BillingOverviewPanel({
                       title="Click here to view more"
                       onClick={() => onSelectBill(`pid:${r.patientId}`)}
                     >
+                      <td className="p-3 text-slate-600 font-mono whitespace-nowrap">
+                        {r.patientCode}
+                      </td>
                       <td className="p-3">
                         <div className="font-extrabold text-slate-900">{r.patientName}</div>
-                        <div className="text-xs text-slate-500">
-                          Last activity: {fmtDateMs(r.lastActivityMs)}
-                        </div>
                       </td>
                       <td className="p-3 text-slate-700 font-bold whitespace-nowrap">{r.billsCount}</td>
                       <td className="p-3 text-slate-700 font-bold whitespace-nowrap">{r.paidBills}</td>
@@ -301,7 +298,6 @@ export default function BillingOverviewPanel({
                           {open ? `${r.unpaidBills} open` : "0 open"}
                         </span>
                       </td>
-                      <td className="p-3 text-xs text-slate-600">{fmtDateMs(r.lastActivityMs)}</td>
                       <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => onSelectBill(`pid:${r.patientId}`)}
@@ -325,3 +321,4 @@ export default function BillingOverviewPanel({
     </div>
   );
 }
+

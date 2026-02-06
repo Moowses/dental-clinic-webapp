@@ -9,6 +9,8 @@ import {
   recordBillingPaymentAction,
 } from "@/app/actions/billing-actions";
 import { getAppointmentById } from "@/lib/services/appointment-service";
+import { getPatientRecord } from "@/lib/services/patient-service";
+import { getUserProfile } from "@/lib/services/user-service";
 
 type InstallmentStatus = "pending" | "paid" | "cancelled" | "overdue";
 
@@ -98,7 +100,23 @@ function fmtDateOnly(input: any) {
   if (!d) return "—";
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
 }
-
+function fmtApptDateTime(date?: string, time?: string) {
+  if (!date) return "—";
+  if (time) {
+    const d = new Date(`${date}T${time}`);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    }
+  }
+  return fmtDateOnly(date);
+}
 function computeTotals(bill: BillingRecord | null) {
   const items = Array.isArray(bill?.items) ? (bill!.items as BillingItem[]) : [];
   const total = items.reduce((s, it) => s + Number(it.price || 0), 0);
@@ -221,6 +239,8 @@ export default function BillingPaymentPlansPanel({
   const [activeAppointmentId, setActiveAppointmentId] = useState<string>(initialAppointmentId);
   const [patientBills, setPatientBills] = useState<BillingRecord[]>([]);
   const [bill, setBill] = useState<BillingRecord | null>(null);
+  const [patientName, setPatientName] = useState<string>("â€”");
+  const [patientCode, setPatientCode] = useState<string>("â€”");
 
   const [loadingBills, setLoadingBills] = useState(false);
   const [loadingBill, setLoadingBill] = useState(false);
@@ -322,10 +342,9 @@ export default function BillingPaymentPlansPanel({
       const res = await getBillingByPatientAction(pid, "all");
       if (!res?.success) throw new Error(res?.error || "Failed to load patient bills.");
       const list = Array.isArray(res.data) ? (res.data as BillingRecord[]) : [];
-      const openOnly = list.filter((b) => Number(computeTotals(b).remaining || 0) > 0);
 
       // ✅ ensure the UI promise "unpaid/partial first" is true
-      const sorted = [...openOnly].sort((a, b) => {
+      const sorted = [...list].sort((a, b) => {
         const ta = computeTotals(a).status;
         const tb = computeTotals(b).status;
         const ra = rankStatus(ta);
@@ -353,7 +372,11 @@ export default function BillingPaymentPlansPanel({
     try {
       const res = await getBillingDetailsAction(appointmentId);
       if (!res?.success) throw new Error(res?.error || "Failed to load billing details.");
-      setBill(res.data || null);
+      const nextBill = res.data || null;
+      setBill(nextBill);
+      if (nextBill?.patientId && !patientId) {
+        setPatientId(String(nextBill.patientId));
+      }
     } catch (e: any) {
       setErr(e?.message || "Failed to load bill.");
       setBill(null);
@@ -364,6 +387,33 @@ export default function BillingPaymentPlansPanel({
 
   useEffect(() => {
     if (patientId) loadPatientBills(patientId);
+  }, [patientId]);
+
+  useEffect(() => {
+    if (!patientId) {
+      setPatientName("â€”");
+      setPatientCode("â€”");
+      return;
+    }
+    let active = true;
+    (async () => {
+      const profile = await getUserProfile(patientId);
+      if (!active) return;
+      const name =
+        (profile as any)?.data?.displayName ||
+        (profile as any)?.data?.fullName ||
+        (profile as any)?.data?.name ||
+        (profile as any)?.data?.email ||
+        "â€”";
+      setPatientName(name);
+      const record = await getPatientRecord(patientId);
+      if (!active) return;
+      const code = (record as any)?.data?.patientId;
+      setPatientCode(code ? String(code) : "â€”");
+    })();
+    return () => {
+      active = false;
+    };
   }, [patientId]);
 
   useEffect(() => {
@@ -395,13 +445,17 @@ export default function BillingPaymentPlansPanel({
     if (!bill) return;
     setErr(null);
 
-    const amount = fullBalance ? Number(totals.remaining || 0) : Number(payAmount || 0);
+    const amount = Number(payAmount || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       setErr("Please enter a valid payment amount.");
       return;
     }
+
     if (fullBalance) {
-      setPayAmount(String(amount));
+      if (Math.abs(amount - totals.remaining) > 0.01) {
+        setErr("Amount must match the full remaining balance.");
+        return;
+      }
     }
 
     if (!fullBalance && selectedItemIds.length) {
@@ -551,6 +605,9 @@ export default function BillingPaymentPlansPanel({
                 <p className="text-sm text-slate-500">
                   Per appointment billing • Pay per item • Installments per procedure
                 </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Patient: <span className="font-extrabold text-slate-900">{patientName}</span> <span className="text-slate-400">•</span> ID: <span className="font-mono font-extrabold text-slate-900">{patientCode}</span>
+                </p>
               </div>
 
               <button
@@ -576,21 +633,15 @@ export default function BillingPaymentPlansPanel({
                       Unpaid/partial appointments appear first.
                     </div>
                   </div>
-                    <div className="text-xs text-slate-500">
-                      Active:{" "}
-                      <span className="font-extrabold text-slate-900">
-                        {activeAppointmentId && apptMeta[activeAppointmentId]?.date
-                          ? `${apptMeta[activeAppointmentId]?.date}${
-                              apptMeta[activeAppointmentId]?.time
-                                ? ` ${apptMeta[activeAppointmentId]?.time}`
-                                : ""
-                            }`
-                          : "—"}
-                      </span>
-                    </div>
+                  <div className="text-xs text-slate-500">
+                    Active:{" "}
+                    <span className="font-extrabold text-slate-900">
+                      {activeAppointmentId || "—"}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="mt-3 space-y-2">
                   {loadingBills ? (
                     <div className="rounded-2xl border border-slate-200 p-4 text-sm text-slate-600">
                       Loading…
@@ -608,51 +659,45 @@ export default function BillingPaymentPlansPanel({
                           key={b.appointmentId}
                           onClick={() => setActiveAppointmentId(b.appointmentId)}
                           className={[
-                            "rounded-2xl border p-4 text-left transition",
+                            "w-full rounded-2xl border p-4 text-left transition",
                             active
                               ? "border-slate-900 bg-slate-900 text-white"
                               : "border-slate-200 bg-white hover:bg-slate-50",
                           ].join(" ")}
                         >
-                        
-                      <div className={`text-[11px] font-extrabold ${active ? "text-white/80" : "text-slate-500"}`}>
-                            PROCEDURES
-                          </div>
-
-                          <div className={`${active ? "text-white" : "text-slate-900"} mt-1 text-sm font-extrabold`}>
-                            {allProcedures}
-                          </div>
-
-                          <div className={`mt-1 text-[11px] ${active ? "text-white/80" : "text-slate-500"}`}>
-                            Open balance:{" "}
-                            <span className={`${active ? "text-white" : hasOpen ? "text-slate-900" : "text-slate-600"} font-extrabold`}>
-                              {openProcedures}
-                            </span>
-                          </div>
-
-                            <div className={`mt-1 text-[11px] ${active ? "text-white/70" : "text-slate-500"}`}>
-                              Appointment:{" "}
-                              {apptMeta[b.appointmentId]?.date
-                                ? `${apptMeta[b.appointmentId]?.date}${
-                                    apptMeta[b.appointmentId]?.time ? ` ${apptMeta[b.appointmentId]?.time}` : ""
-                                  }`
-                                : "—"}
-                            </div>
-
-                          <div className="mt-2 flex items-end justify-between">
+                          <div className="flex items-start justify-between gap-3">
                             <div>
+                              <div className={`text-[11px] font-extrabold ${active ? "text-white/80" : "text-slate-500"}`}>
+                                PROCEDURES
+                              </div>
+                              <div className={`${active ? "text-white" : "text-slate-900"} mt-1 text-sm font-extrabold`}>
+                                {allProcedures}
+                              </div>
+                            </div>
+                            <div className="text-right">
                               <div className={`${active ? "text-white" : "text-slate-900"} text-lg font-extrabold`}>
-                              ₱ {money(t.remaining)}{" "}
-                              <span className={`${active ? "text-white/80" : "text-slate-500"} text-xs font-bold`}>
-                                / ₱ {money(t.total)}
+                                ₱ {money(t.remaining)}{" "}
+                                <span className={`${active ? "text-white/80" : "text-slate-500"} text-xs font-bold`}>
+                                  / ₱ {money(t.total)}
+                                </span>
+                              </div>
+                              <div className={`${active ? "text-white/70" : "text-slate-500"} text-[11px]`}>
+                                Appointment:{" "}
+                                {fmtApptDateTime(
+                                  apptMeta[b.appointmentId]?.date,
+                                  apptMeta[b.appointmentId]?.time
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex items-center justify-between">
+                            <div className={`text-[11px] ${active ? "text-white/80" : "text-slate-500"}`}>
+                              Open balance:{" "}
+                              <span className={`${active ? "text-white" : hasOpen ? "text-slate-900" : "text-slate-600"} font-extrabold`}>
+                                {openProcedures}
                               </span>
                             </div>
-
-                            <div className={`${active ? "text-white/70" : "text-slate-500"} text-xs`}>
-                              Updated: {fmtDateTime(b.updatedAt)}
-                            </div>
-                            </div>
-
                             <span
                               className={[
                                 "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-extrabold",
@@ -679,6 +724,80 @@ export default function BillingPaymentPlansPanel({
                 </div>
               </div>
 
+              <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-100">
+                  <div className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500">Step 1</div>
+                  <div className="text-sm font-extrabold text-slate-900 mt-1">Items</div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    Each procedure can be paid in full, partially, or by installments.
+                  </div>
+                </div>
+
+                <div className="p-4 overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-slate-500">
+                        <th className="py-2 pr-4">Select</th>
+                        <th className="py-2 pr-4">Item</th>
+                        <th className="py-2 pr-4">Price</th>
+                        <th className="py-2 pr-4">Type</th>
+                        <th className="py-2 pr-4">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {items.map((it) => {
+                        const st = String(it.status || "unpaid").toLowerCase();
+                        const disabled = st === "paid" || st === "void" || st === "waived";
+                        const checked = selectedItemIds.includes(it.id);
+                        return (
+                          <tr key={it.id}>
+                            <td className="py-3 pr-4">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={disabled}
+                                onChange={(e) => {
+                                  const on = e.target.checked;
+                                  setSelectedItemIds((prev) =>
+                                    on ? [...prev, it.id] : prev.filter((x) => x !== it.id)
+                                  );
+                                }}
+                              />
+                            </td>
+                            <td className="py-3 pr-4">
+                              <div className="font-extrabold text-slate-900">{it.name}</div>
+                              {it.toothNumber ? (
+                                <div className="text-xs text-slate-500">Tooth: {it.toothNumber}</div>
+                              ) : null}
+                            </td>
+                            <td className="py-3 pr-4">₱ {money(Number(it.price || 0))}</td>
+                            <td className="py-3 pr-4">
+                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-extrabold text-slate-700">
+                                {st === "plan" ? "INSTALLMENTS" : "FULL"}
+                              </span>
+                            </td>
+                            <td className="py-3 pr-4">
+                              <span
+                                className={[
+                                  "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-extrabold",
+                                  st === "paid"
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                    : st === "plan"
+                                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                                    : "border-amber-200 bg-amber-50 text-amber-700",
+                                ].join(" ")}
+                              >
+                                {(st || "unpaid").toUpperCase()}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
               {loadingBill ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
                   Loading billing…
@@ -688,14 +807,18 @@ export default function BillingPaymentPlansPanel({
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div>
-                    <div className="text-xs text-slate-500 font-bold">APPOINTMENT DATE</div>
-                    <div className="text-sm font-extrabold text-slate-900">
-                      {apptMeta[bill.appointmentId]?.date
-                        ? `${apptMeta[bill.appointmentId]?.date}${
-                            apptMeta[bill.appointmentId]?.time ? ` ${apptMeta[bill.appointmentId]?.time}` : ""
-                          }`
-                        : "—"}
-                    </div>
+                        <div className="text-xs text-slate-500 font-bold">PROCEDURE(S)</div>
+                        <div className="text-sm font-extrabold text-slate-900">
+                          {items.length ? items.map((it) => it.name).join(", ") : "—"}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          Appointment:{" "}
+                          {apptMeta[bill.appointmentId]?.date
+                            ? `${apptMeta[bill.appointmentId]?.date}${
+                                apptMeta[bill.appointmentId]?.time ? ` ${apptMeta[bill.appointmentId]?.time}` : ""
+                              }`
+                            : "—"}
+                        </div>
                       </div>
 
                       <div className="flex items-end justify-between gap-3 md:justify-end">
@@ -748,7 +871,7 @@ export default function BillingPaymentPlansPanel({
                         <textarea
                           value={note}
                           onChange={(e) => setNote(e.target.value)}
-                          placeholder="Notes (optional)"
+                          placeholder="Notes if Gcash and Bank trasnfer please Note the last four digits of the reference number (optional)"
                           className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm min-h-[80px]"
                         />
 
@@ -830,79 +953,6 @@ export default function BillingPaymentPlansPanel({
                           Schedule (amounts + due dates) will be generated and stored on the billing record.
                         </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-                    <div className="px-4 py-3 border-b border-slate-100">
-                      <div className="text-sm font-extrabold text-slate-900">Items</div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        Each procedure can be paid in full, partially, or by installments.
-                      </div>
-                    </div>
-
-                    <div className="p-4 overflow-x-auto">
-                      <table className="min-w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-xs text-slate-500">
-                            <th className="py-2 pr-4">Select</th>
-                            <th className="py-2 pr-4">Item</th>
-                            <th className="py-2 pr-4">Price</th>
-                            <th className="py-2 pr-4">Type</th>
-                            <th className="py-2 pr-4">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {items.map((it) => {
-                            const st = String(it.status || "unpaid").toLowerCase();
-                            const disabled = st === "paid" || st === "void" || st === "waived";
-                            const checked = selectedItemIds.includes(it.id);
-                            return (
-                              <tr key={it.id}>
-                                <td className="py-3 pr-4">
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    disabled={disabled}
-                                    onChange={(e) => {
-                                      const on = e.target.checked;
-                                      setSelectedItemIds((prev) =>
-                                        on ? [...prev, it.id] : prev.filter((x) => x !== it.id)
-                                      );
-                                    }}
-                                  />
-                                </td>
-                                <td className="py-3 pr-4">
-                                  <div className="font-extrabold text-slate-900">{it.name}</div>
-                                  {it.toothNumber ? (
-                                    <div className="text-xs text-slate-500">Tooth: {it.toothNumber}</div>
-                                  ) : null}
-                                </td>
-                                <td className="py-3 pr-4">₱ {money(Number(it.price || 0))}</td>
-                                <td className="py-3 pr-4">
-                                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-extrabold text-slate-700">
-                                    {st === "plan" ? "INSTALLMENTS" : "FULL"}
-                                  </span>
-                                </td>
-                                <td className="py-3 pr-4">
-                                  <span
-                                    className={[
-                                      "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-extrabold",
-                                      st === "paid"
-                                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                        : st === "plan"
-                                        ? "border-blue-200 bg-blue-50 text-blue-700"
-                                        : "border-amber-200 bg-amber-50 text-amber-700",
-                                    ].join(" ")}
-                                  >
-                                    {(st || "unpaid").toUpperCase()}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
                     </div>
                   </div>
 
@@ -1134,10 +1184,21 @@ export default function BillingPaymentPlansPanel({
                   {busy ? "Saving…" : "Yes, save"}
                 </button>
               </div>
-            </div>
+            </div>1
           </div>
         </div>
       ) : null}
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
