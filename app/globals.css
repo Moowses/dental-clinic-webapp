@@ -51,3 +51,22 @@ select:focus {
   border-color: #6366f1; /* indigo-500 */
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
+
+.payment-banner-track {
+  display: inline-block;
+  min-width: 200%;
+  animation: payment-banner-marquee 18s linear infinite;
+}
+
+.payment-banner-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes payment-banner-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
