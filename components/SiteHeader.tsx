@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AuthModal from "@/components/AuthModal";
 import { useAuth } from "@/lib/hooks/useAuth";
-import PaymentNoticeBanner from "@/components/PaymentNoticeBanner";
 
 const BRAND = "#0E4B5A";
 
@@ -34,8 +33,6 @@ export default function SiteHeader() {
   return (
     <>
       <header className="sticky top-0 z-50 w-full">
-        <PaymentNoticeBanner />
-
         <div className="border-b border-black/5 bg-white/90 backdrop-blur">
           <div className="mx-auto max-w-6xl px-4">
             <div className="flex h-[72px] items-center justify-between gap-4">
