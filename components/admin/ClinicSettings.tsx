@@ -66,6 +66,10 @@ export default function ClinicSettings() {
   const [syncMsg, setSyncMsg] = useState<{ type: "ok" | "err"; msg: string } | null>(
     null
   );
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState<{ type: "ok" | "err"; msg: string } | null>(
+    null
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -191,6 +195,26 @@ export default function ClinicSettings() {
     }
   };
 
+  const handleSystemUpdateCheck = async () => {
+    setCheckingUpdate(true);
+    setUpdateMsg(null);
+
+    try {
+      // Mocked system check to validate UI flow.
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const checkedAt = new Date().toLocaleString();
+      setUpdateMsg({
+        type: "ok",
+        msg: `System update check successful. No pending updates. Checked at ${checkedAt}.`,
+      });
+    } catch (e) {
+      console.error(e);
+      setUpdateMsg({ type: "err", msg: "System update check failed." });
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm p-5">
       <div className="flex items-end justify-between gap-3">
@@ -226,18 +250,32 @@ export default function ClinicSettings() {
                 Sync the Patient ID counter to the latest recorded ID.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleSyncCounter}
-              disabled={syncingCounter}
-              className={`px-4 py-2 rounded-xl font-extrabold text-xs transition ${
-                syncingCounter
-                  ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                  : "bg-white border border-slate-200 text-slate-900 hover:bg-slate-100"
-              }`}
-            >
-              {syncingCounter ? "Checking..." : "Check Data and System Integrity"}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSyncCounter}
+                disabled={syncingCounter}
+                className={`px-4 py-2 rounded-xl font-extrabold text-xs transition ${
+                  syncingCounter
+                    ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                    : "bg-white border border-slate-200 text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                {syncingCounter ? "Checking..." : "Check Data and System Integrity"}
+              </button>
+              <button
+                type="button"
+                onClick={handleSystemUpdateCheck}
+                disabled={checkingUpdate}
+                className={`px-4 py-2 rounded-xl font-extrabold text-xs transition ${
+                  checkingUpdate
+                    ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                    : "bg-white border border-slate-200 text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                {checkingUpdate ? "Checking updates..." : "Run System Update Check"}
+              </button>
+            </div>
           </div>
           {syncMsg && (
             <p
@@ -246,6 +284,15 @@ export default function ClinicSettings() {
               }`}
             >
               {syncMsg.msg}
+            </p>
+          )}
+          {updateMsg && (
+            <p
+              className={`mt-2 text-xs font-extrabold ${
+                updateMsg.type === "ok" ? "text-emerald-700" : "text-rose-600"
+              }`}
+            >
+              {updateMsg.msg}
             </p>
           )}
         </div>

@@ -72,7 +72,7 @@ export default function AdminDashboardPage() {
   const canSeeInventory = isAdmin;
   const canSeeReports = isAdmin;
   const canSeeAnalytics = isAdmin;
-  const canSeeTreatmentRecords = isAdmin;
+  const canSeeTreatmentRecords = isAdmin || isDentist;
 
   // ✅ NEW
   const canSeeClinicSettings = isAdmin || isFrontDesk;

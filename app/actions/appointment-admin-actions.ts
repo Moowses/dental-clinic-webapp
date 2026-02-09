@@ -5,6 +5,7 @@ import {
   getAppointmentsByPatientIdAdmin,
   updateTreatmentExtrasAdmin,
 } from "@/lib/services/appointment-service-admin";
+import { adminAuth, adminDb } from "@/lib/firebase/server";
 
 type DentalChartEntry = {
   status?: string;
@@ -280,8 +281,18 @@ export async function getPatientTreatmentHistoryAction(input: {
     return { success: false, error: "Missing required fields" };
   }
 
-  const ok = await verifyStaffToken(input.idToken);
-  if (!ok) return { success: false, error: "Unauthorized" };
+  const decoded = await adminAuth.verifyIdToken(input.idToken).catch(() => null);
+  if (!decoded?.uid) return { success: false, error: "Unauthorized" };
+
+  const userDoc = await adminDb.collection("users").doc(decoded.uid).get();
+  if (!userDoc.exists) return { success: false, error: "Unauthorized" };
+  const role = String(userDoc.data()?.role || "");
+  const isStaff =
+    role === "admin" || role === "front-desk" || role === "dentist";
+  const isOwnClientRequest = role === "client" && decoded.uid === input.patientId;
+  if (!isStaff && !isOwnClientRequest) {
+    return { success: false, error: "Unauthorized" };
+  }
 
   const res = await getAppointmentsByPatientIdAdmin(input.patientId);
   if (!res.success || !res.data) {
